@@ -20,6 +20,7 @@ TEST_PRODUCTION_SOURCES = \
 	Sources/LLMAPITransport.swift \
 	Sources/LLMCooldownManager.swift \
 	Sources/ModelConfiguration.swift \
+	Sources/SemanticVersion.swift \
 	Sources/TranscriptTextCore.swift \
 	Sources/TranscriptionService.swift \
 	Sources/UpdateManager.swift \
