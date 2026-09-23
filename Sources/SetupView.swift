@@ -96,9 +96,24 @@ final class GitHubMetadataCache: ObservableObject {
                                      URLQueryItem(name: "page", value: "1")]
             var request = URLRequest(url: components.url!)
             request.setValue("application/vnd.github.v3.star+json", forHTTPHeaderField: "Accept")
-            if let (data, _) = try? await URLSession.shared.data(for: request),
+            if let (data, response) = try? await URLSession.shared.data(for: request),
                let records = try? JSONDecoder().decode([GitHubStarRecord].self, from: data) {
-                recentStargazers = Array(records.reversed().prefix(15))
+                var newestRecords = records
+                // Page 1 holds the oldest stargazers; the newest ones live on
+                // the last page, so follow the Link header when paginated.
+                let lastPage = Self.lastStargazersPage(from: response)
+                if lastPage > 1,
+                   let lastURL = Self.stargazersURL(repo: repo, page: lastPage) {
+                    var lastRequest = URLRequest(url: lastURL)
+                    lastRequest.setValue("application/vnd.github.v3.star+json",
+                                         forHTTPHeaderField: "Accept")
+                    if let (lastData, _) = try? await URLSession.shared.data(for: lastRequest),
+                       let lastRecords = try? JSONDecoder().decode([GitHubStarRecord].self, from: lastData),
+                       !lastRecords.isEmpty {
+                        newestRecords = lastRecords
+                    }
+                }
+                recentStargazers = Array(newestRecords.reversed().prefix(15))
                 fetchedAnything = true
             }
         }
@@ -112,6 +127,32 @@ final class GitHubMetadataCache: ObservableObject {
         if fetchedAnything {
             lastFetchedAt = Date()
         }
+    }
+
+    /// GitHub paginates with a `Link` header; `rel="last"` points at the final
+    /// page (`...?per_page=100&page=N`). Returns 1 when the header is absent
+    /// (single page).
+    private static func lastStargazersPage(from response: URLResponse) -> Int {
+        guard let httpResponse = response as? HTTPURLResponse,
+              let link = httpResponse.value(forHTTPHeaderField: "Link") else { return 1 }
+        for segment in link.components(separatedBy: ",") {
+            guard segment.contains(#"rel="last""#),
+                  let range = segment.range(of: #"[?&]page=(\d+)"#, options: .regularExpression) else {
+                continue
+            }
+            let match = segment[range]
+            if let number = Int(match.drop(while: { $0 != "=" }).dropFirst()) {
+                return number
+            }
+        }
+        return 1
+    }
+
+    private static func stargazersURL(repo: URL, page: Int) -> URL? {
+        guard var components = URLComponents(url: repo, resolvingAgainstBaseURL: false) else { return nil }
+        components.queryItems = [URLQueryItem(name: "per_page", value: "100"),
+                                 URLQueryItem(name: "page", value: String(page))]
+        return components.url
     }
 
     private func fetchJSON<T: Decodable>(_ type: T.Type, urlString: String) async -> T? {
@@ -331,6 +372,8 @@ struct SetupView: View {
     @State private var apiKeyInput = ""
     @State private var isValidatingKey = false
     @State private var keyValidationError: String?
+    @State private var keyValidationDetail: String?
+    @State private var providerUnreachable = false
     @State private var micPermissionGranted = false
     @State private var accessibilityGranted = AXIsProcessTrusted()
     @State private var capturingHold = false
@@ -345,6 +388,7 @@ struct SetupView: View {
     @State private var customVocabularyDraft = ""
     @State private var accessibilityPollTimer = Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()
     @State private var screenPollTimer = Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()
+    @State private var micPollTimer = Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()
 
     @State private var testPhase: TestPhase = .idle
     @State private var testTranscript = ""
@@ -374,6 +418,7 @@ struct SetupView: View {
         .onDisappear {
             accessibilityPollTimer.upstream.connect().cancel()
             screenPollTimer.upstream.connect().cancel()
+            micPollTimer.upstream.connect().cancel()
             appState.resumeHotkeyMonitoringAfterShortcutCapture()
             stopTest()
         }
@@ -392,7 +437,19 @@ struct SetupView: View {
         }
         .onReceive(screenPollTimer) { _ in
             guard currentStep == .screenRecording else { return }
-            screenRecordingGranted = appState.hasScreenCapturePermission()
+            // The card display and the Continue gate must read the same state,
+            // otherwise the UI can show "Granted" while Continue stays disabled.
+            let granted = appState.hasScreenCapturePermission()
+            screenRecordingGranted = granted
+            if appState.hasScreenRecordingPermission != granted {
+                appState.hasScreenRecordingPermission = granted
+            }
+        }
+        .onReceive(micPollTimer) { _ in
+            guard currentStep == .micPermission else { return }
+            // React to permission granted later in System Settings, like the
+            // accessibility step does.
+            micPermissionGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
         }
     }
 
@@ -559,11 +616,18 @@ struct SetupView: View {
                 .font(.system(size: NSFont.systemFontSize(for: .small), design: .monospaced))
                 .onChange(of: apiKeyInput) { _ in
                     keyValidationError = nil
+                    keyValidationDetail = nil
+                    providerUnreachable = false
                 }
             if let keyValidationError {
                 Text(keyValidationError)
                     .font(.caption)
-                    .foregroundColor(.red)
+                    .foregroundColor(providerUnreachable ? .orange : .red)
+            }
+            if providerUnreachable, let keyValidationDetail {
+                Text(keyValidationDetail)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
             Button {
                 showsProviderSheet = true
@@ -1016,10 +1080,27 @@ struct SetupView: View {
 
     private func startTestRecording() {
         let recorder = AudioRecorder()
+        // Microphone unplug / capture-session failure must end the test
+        // immediately instead of leaving "Listening..." on screen forever.
+        recorder.onRecordingFailure = { [weak recorder] error in
+            guard let recorder else { return }
+            Task { @MainActor in
+                testLevelCancellable?.cancel()
+                testLevelCancellable = nil
+                testAudioLevel = 0
+                testHotkeyHarness.isTranscribing = false
+                testRecorder = nil
+                testError = AppState.formattedTranscriptionError(error)
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                    testPhase = .done
+                }
+                recorder.cleanup()
+            }
+        }
         do {
             try recorder.startRecording(deviceUID: appState.selectedMicrophoneID)
         } catch {
-            testError = error.localizedDescription
+            testError = AppState.formattedTranscriptionError(error)
             testPhase = .done
             return
         }
@@ -1055,7 +1136,7 @@ struct SetupView: View {
                         testTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
                         testError = nil
                     } catch {
-                        testError = error.localizedDescription
+                        testError = AppState.formattedTranscriptionError(error)
                     }
                     testHotkeyHarness.isTranscribing = false
                     recorder.cleanup()
@@ -1144,6 +1225,8 @@ struct SetupView: View {
             if currentStep != .welcome {
                 Button("Back") {
                     keyValidationError = nil
+                    keyValidationDetail = nil
+                    providerUnreachable = false
                     withAnimation {
                         currentStep = SetupStep(rawValue: max(currentStep.rawValue - 1, 0)) ?? .welcome
                     }
@@ -1153,6 +1236,11 @@ struct SetupView: View {
             Spacer()
             switch currentStep {
             case .apiKey:
+                if providerUnreachable {
+                    Button("Continue Offline") {
+                        continueWithoutValidation()
+                    }
+                }
                 Button(isValidatingKey ? "Validating..." : "Continue") {
                     validateAndContinue()
                 }
@@ -1202,20 +1290,36 @@ struct SetupView: View {
         guard !key.isEmpty else { return }
         isValidatingKey = true
         keyValidationError = nil
+        keyValidationDetail = nil
+        providerUnreachable = false
         let baseURL = appState.apiBaseURL.isEmpty ? AppState.defaultAPIBaseURL : appState.apiBaseURL
         appState.apiBaseURL = baseURL
         Task {
-            let valid = await TranscriptionService.validateAPIKey(key, baseURL: baseURL)
+            let outcome = await TranscriptionService.validateAPIKey(key, baseURL: baseURL)
             await MainActor.run {
                 isValidatingKey = false
-                if valid {
+                switch outcome {
+                case .valid:
                     appState.apiKey = key
                     advance()
-                } else {
-                    keyValidationError = "Validation failed. Please check your API key and provider settings, then try again."
+                case .invalidKey:
+                    keyValidationError = "The provider rejected this API key. Check the key and provider settings, then try again."
+                case .unavailable(let detail):
+                    providerUnreachable = true
+                    keyValidationError = "Provider is unreachable — check your connection."
+                    keyValidationDetail = detail
                 }
             }
         }
+    }
+
+    /// Offered when the provider cannot be reached: saves the entered key and
+    /// moves on without validation instead of blocking onboarding.
+    private func continueWithoutValidation() {
+        let key = apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return }
+        appState.apiKey = key
+        advance()
     }
 }
 

@@ -6,7 +6,6 @@ struct TestCaseExporter {
     enum ExportError: Error, LocalizedError {
         case tempDirectoryCreationFailed(underlying: Error?)
         case zipFailed(Int32)
-        case screenshotDecodeFailed
         case missingAudioFile(String)
 
         var errorDescription: String? {
@@ -18,8 +17,6 @@ struct TestCaseExporter {
                 return "Could not create temporary export directory"
             case .zipFailed(let code):
                 return "zip exited with code \(code)"
-            case .screenshotDecodeFailed:
-                return "Could not decode screenshot data URL"
             case .missingAudioFile(let name):
                 return "Missing audio file for export: \(name)"
             }
@@ -90,13 +87,18 @@ struct TestCaseExporter {
         ]
 
         if let dataURL = item.contextScreenshotDataURL {
-            guard let data = decodeDataURL(dataURL) else {
-                throw ExportError.screenshotDecodeFailed
+            // The screenshot is an optional artifact: a broken data URL must
+            // not cancel the whole export. Skip the file and record why.
+            if let data = decodeDataURL(dataURL) {
+                let fileExtension = dataURL.hasPrefix("data:image/png") ? "png" : "jpg"
+                let screenshotName = "screenshot.\(fileExtension)"
+                try data.write(to: tempDir.appendingPathComponent(screenshotName))
+                pipeline["screenshot_path"] = "./\(screenshotName)"
+            } else {
+                var notes = pipeline["pipeline_notes"] as? [String] ?? []
+                notes.append("screenshot_decode_failed")
+                pipeline["pipeline_notes"] = notes
             }
-            let fileExtension = dataURL.hasPrefix("data:image/png") ? "png" : "jpg"
-            let screenshotName = "screenshot.\(fileExtension)"
-            try data.write(to: tempDir.appendingPathComponent(screenshotName))
-            pipeline["screenshot_path"] = "./\(screenshotName)"
         }
 
         if let audioFileName = item.audioFileName {

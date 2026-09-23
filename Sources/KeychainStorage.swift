@@ -8,20 +8,30 @@ enum AppSettingsStorage {
     private static let migrationKey = "keychain_migration_done"
     private static let fallbackAppName = "OmniFlow"
     private static let fallbackService = "com.nick8cyber.omniflow"
+    /// Serializes every read-modify-write cycle (load/save/delete). The API is
+    /// process-global and static, so two concurrent callers could otherwise
+    /// overwrite each other's update.
+    private static let lock = NSLock()
 
     static func load(account: String) -> String? {
+        lock.lock()
+        defer { lock.unlock() }
         var dictionary = readDictionary()
         migrateFromKeychainIfNeeded(account: account, dictionary: &dictionary)
         return dictionary[account]
     }
 
     static func save(_ value: String, account: String) {
+        lock.lock()
+        defer { lock.unlock() }
         var dictionary = readDictionary()
         dictionary[account] = value
         writeDictionary(dictionary)
     }
 
     static func delete(account: String) {
+        lock.lock()
+        defer { lock.unlock() }
         var dictionary = readDictionary()
         dictionary.removeValue(forKey: account)
         writeDictionary(dictionary)

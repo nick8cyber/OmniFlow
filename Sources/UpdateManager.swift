@@ -112,6 +112,11 @@ final class UpdateManager: ObservableObject {
 
     private var periodicCheckTimer: Timer?
     private var activeDownloadTask: Task<Void, Never>?
+    /// The detached byte-loop of the current download. Detached tasks do not
+    /// inherit the coordinator task's cancellation, so `cancelDownload` must
+    /// cancel this task as well or the download (and the subsequent install)
+    /// would keep running after the user pressed Cancel.
+    private var networkDownloadTask: Task<Void, Error>?
 
     private init() {
         lastCheckDate = UserDefaults.standard.object(forKey: "updateLastCheckDate") as? Date
@@ -549,7 +554,13 @@ final class UpdateManager: ObservableObject {
 
     func cancelDownload() {
         activeDownloadTask?.cancel()
+        // The byte-loop runs detached and does not inherit the cancellation of
+        // `activeDownloadTask` (spec 31 §7.1/§7.2) — cancel it explicitly so
+        // the download truly stops instead of mounting the DMG and swapping
+        // the app after the user cancelled.
+        networkDownloadTask?.cancel()
         activeDownloadTask = nil
+        networkDownloadTask = nil
         downloadProgress = nil
         updateStatus = .idle
     }
@@ -562,6 +573,7 @@ final class UpdateManager: ObservableObject {
             return
         }
         activeDownloadTask?.cancel()
+        networkDownloadTask?.cancel()
         activeDownloadTask = Task { [weak self] in
             await self?.performUpdate(asset: asset)
         }
@@ -595,6 +607,10 @@ final class UpdateManager: ObservableObject {
                 ? response.expectedContentLength
                 : Int64(asset.size)
             try await downloadToFile(bytes: bytes, totalSize: totalSize, destination: dmgURL)
+            // The download loop runs detached: if the user cancelled while it
+            // was finishing, stop here instead of mounting the DMG and
+            // replacing the running app.
+            try Task.checkCancellation()
         } catch is CancellationError {
             try? fileManager.removeItem(at: tempDirectory)
             return
@@ -611,6 +627,7 @@ final class UpdateManager: ObservableObject {
         updateStatus = .installing
         downloadProgress = nil
         do {
+            try Task.checkCancellation()
             let mountPoint = try Self.mountDMG(at: dmgURL)
             defer {
                 let detach = Process()
@@ -630,8 +647,18 @@ final class UpdateManager: ObservableObject {
             let stagedApp = stagingDir.appendingPathComponent("\(AppName.displayName).app", isDirectory: true)
             try fileManager.copyItem(at: appInDMG, to: stagedApp)
             try? fileManager.removeItem(at: tempDirectory)
+            guard !Task.isCancelled else {
+                // Cancelled between download and relaunch: leave the running
+                // install alone, drop the staged copy, and never terminate.
+                try? fileManager.removeItem(at: stagingDir)
+                throw CancellationError()
+            }
             updateStatus = .readyToRelaunch
             replaceAndRelaunch(stagedApp: stagedApp, stagingDir: stagingDir)
+        } catch is CancellationError {
+            // Quiet abort per spec 31 §7.2: temp cleanup only, status untouched
+            // (cancelDownload already reset it to .idle).
+            try? fileManager.removeItem(at: tempDirectory)
         } catch {
             updateStatus = .error("Install failed: \(error.localizedDescription)")
             try? fileManager.removeItem(at: tempDirectory)
@@ -641,7 +668,7 @@ final class UpdateManager: ObservableObject {
     private func downloadToFile(bytes: URLSession.AsyncBytes,
                                 totalSize: Int64,
                                 destination: URL) async throws {
-        try await Task.detached(priority: .userInitiated) {
+        let work = Task.detached(priority: .userInitiated) {
             let fileManager = FileManager.default
             if !fileManager.fileExists(atPath: destination.path) {
                 fileManager.createFile(atPath: destination.path, contents: nil)
@@ -676,7 +703,13 @@ final class UpdateManager: ObservableObject {
             await MainActor.run { [weak self] in
                 self?.downloadProgress = min(max(finalFraction, 0), 1)
             }
-        }.value
+        }
+        // Keep a handle so cancelDownload can cancel the detached loop
+        // directly: cancelling only the outer coordinator task has no effect
+        // on it (detached tasks do not inherit cancellation).
+        networkDownloadTask = work
+        defer { networkDownloadTask = nil }
+        try await work.value
     }
 
     private static func mountDMG(at dmgURL: URL) throws -> String {

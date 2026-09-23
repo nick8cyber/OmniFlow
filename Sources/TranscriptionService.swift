@@ -3,6 +3,14 @@ import os
 
 private let transcriptionLog = OSLog(subsystem: "com.nick8cyber.omniflow", category: "Transcription")
 
+/// Result of an onboarding-style API key validation: distinguishes a key the
+/// provider rejected from a provider that could not be reached at all.
+enum ValidateOutcome: Equatable {
+    case valid
+    case invalidKey
+    case unavailable(String)
+}
+
 enum TranscriptionError: LocalizedError {
     case invalidBaseURL(String)
     case uploadFailed(String)
@@ -112,18 +120,49 @@ class TranscriptionService {
     }
 
     static func validateAPIKey(_ key: String,
-                               baseURL: String = "https://api.groq.com/openai/v1") async -> Bool {
+                               baseURL: String = "https://api.groq.com/openai/v1") async -> ValidateOutcome {
         let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedKey.isEmpty else { return false }
+        guard !trimmedKey.isEmpty else { return .invalidKey }
         guard let normalized = try? normalizedBaseURL(from: baseURL),
-              var url = URL(string: normalized) else { return false }
+              var url = URL(string: normalized) else {
+            return .unavailable("Provider URL is malformed.")
+        }
         url.appendPathComponent("models")
         var request = URLRequest(url: url)
         request.timeoutInterval = 10
         request.setValue("Bearer \(trimmedKey)", forHTTPHeaderField: "Authorization")
-        guard let (_, response) = try? await LLMAPITransport.data(for: request),
-              let httpResponse = response as? HTTPURLResponse else { return false }
-        return httpResponse.statusCode == 200
+        let response: URLResponse
+        do {
+            (_, response) = try await LLMAPITransport.data(for: request)
+        } catch {
+            return .unavailable(Self.unreachableMessage(from: error))
+        }
+        guard let httpResponse = response as? HTTPURLResponse else {
+            return .unavailable("Provider did not return an HTTP response.")
+        }
+        return validateOutcome(forHTTPStatus: httpResponse.statusCode,
+                               host: httpResponse.url?.host)
+    }
+
+    /// Pure HTTP status mapping for key validation, kept out of the network
+    /// path so tests can pin the contract (401/403 = bad key, everything else
+    /// = provider unavailable).
+    static func validateOutcome(forHTTPStatus status: Int, host: String?) -> ValidateOutcome {
+        switch status {
+        case 200:
+            return .valid
+        case 401, 403:
+            return .invalidKey
+        default:
+            return .unavailable(friendlyHTTPMessage(status: status, host: host))
+        }
+    }
+
+    static func unreachableMessage(from error: Error) -> String {
+        if let urlError = error as? URLError, urlError.code == .timedOut {
+            return "The provider did not respond in time."
+        }
+        return "Could not reach the provider — check your internet connection."
     }
 
     static func friendlyHTTPMessage(status: Int, host: String?) -> String {

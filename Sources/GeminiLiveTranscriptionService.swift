@@ -79,29 +79,39 @@ final class GeminiLiveTranscriptionService: RealtimeTranscriptBackend {
     }
 
     func commitAndAwaitFinal() async throws -> String {
-        try await withCheckedThrowingContinuation { continuation in
+        // Built up front: the frame is a constant literal, so failure is
+        // practically unreachable — but if it ever happens the continuation
+        // must be pulled back out of the state before resuming, or a late
+        // turnComplete would resume it a second time.
+        let streamEndMessage = try? GeminiLiveTranscription.audioStreamEndMessage()
+        return try await withCheckedThrowingContinuation { continuation in
             let state = stateQueue.sync { () -> (task: URLSessionWebSocketTask?,
-                                                 sendEnd: Bool,
                                                  outcome: Result<String, Error>?) in
                 if socket == nil || closed {
-                    return (nil, false, .failure(RealtimeTranscriptionError.notConnected))
+                    return (nil, .failure(RealtimeTranscriptionError.notConnected))
                 }
                 if let terminalError = terminalError {
-                    return (nil, false, .failure(terminalError))
+                    return (nil, .failure(terminalError))
                 }
                 if streamEnded {
-                    return (nil, false, .success(transcript))
+                    return (nil, .success(transcript))
                 }
                 streamEnded = true
                 finalContinuation = continuation
-                return (socket, true, nil)
+                return (socket, nil)
             }
             if let outcome = state.outcome {
                 continuation.resume(with: outcome)
                 return
             }
-            guard let message = try? GeminiLiveTranscription.audioStreamEndMessage() else {
-                continuation.resume(throwing: RealtimeTranscriptionError.closedBeforeFinal)
+            guard let message = streamEndMessage else {
+                let pending = stateQueue.sync { () -> CheckedContinuation<String, Error>? in
+                    let stored = finalContinuation
+                    finalContinuation = nil
+                    closed = true
+                    return stored
+                }
+                pending?.resume(throwing: RealtimeTranscriptionError.closedBeforeFinal)
                 return
             }
             state.task?.send(.string(message)) { error in

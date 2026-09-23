@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let appState = AppState()
     var setupWindow: NSWindow?
     private var settingsWindow: NSWindow?
+    private var setupWindowCloseObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NetworkMonitor.shared.start()
@@ -19,6 +20,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if !appState.hasCompletedSetup {
             showSetupWindow()
+            // First run: global shortcuts do not require a completed setup, so
+            // closing the wizard must still start monitoring instead of leaving
+            // the app silently dead.
+            observeSetupWindowClose(restoringCompletedSetup: false)
         } else {
             appState.startHotkeyMonitoring()
             appState.startAccessibilityPolling()
@@ -89,18 +94,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appState.stopAccessibilityPolling()
         appState.stopHotkeyMonitoring()
         showSetupWindow()
-        guard wasCompleted else { return }
-        NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification,
-                                               object: setupWindow,
-                                               queue: .main) { [weak self] _ in
-            guard let self else { return }
-            if !self.appState.hasCompletedSetup {
-                self.appState.hasCompletedSetup = true
+        observeSetupWindowClose(restoringCompletedSetup: wasCompleted)
+    }
+
+    /// Observes the setup window closing and restores the post-setup runtime
+    /// state when the wizard is dismissed without finishing it. The observer
+    /// token is replaced on each call (repeated "Re-run Setup...") and removed
+    /// when it fires, so observers never accumulate.
+    private func observeSetupWindowClose(restoringCompletedSetup: Bool) {
+        if let existingObserver = setupWindowCloseObserver {
+            NotificationCenter.default.removeObserver(existingObserver)
+            setupWindowCloseObserver = nil
+        }
+        guard let window = setupWindow else { return }
+        setupWindowCloseObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: .main) { [weak self] _ in
+                guard let self else { return }
+                self.setupWindowCloseObserver = nil
+                self.setupWindow = nil
+                guard !self.appState.hasCompletedSetup else { return }
+                if restoringCompletedSetup {
+                    self.appState.hasCompletedSetup = true
+                }
                 self.appState.startHotkeyMonitoring()
                 self.appState.startAccessibilityPolling()
                 NSApp.setActivationPolicy(.accessory)
-            }
-            self.setupWindow = nil
         }
     }
 

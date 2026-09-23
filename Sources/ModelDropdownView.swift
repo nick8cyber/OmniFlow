@@ -50,10 +50,10 @@ struct ModelDropdownView: View {
                         .font(.system(size: NSFont.systemFontSize(for: .small)))
                         .focused($customFieldFocused)
                         .onSubmit {
-                            onCommit()
+                            commitCustom()
                         }
                         .onExitCommand {
-                            onCommit()
+                            commitCustom()
                         }
                 }
                 Button("Reset to Default") {
@@ -61,6 +61,11 @@ struct ModelDropdownView: View {
                     onReset()
                 }
                 .font(.caption)
+            }
+            if isCustom {
+                Text("Custom model ID — used verbatim in API requests")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             if let subtitle {
                 Text(subtitle)
@@ -76,9 +81,21 @@ struct ModelDropdownView: View {
         }
         .onChange(of: customFieldFocused) { focused in
             if !focused {
-                onCommit()
+                commitCustom()
             }
         }
+    }
+
+    /// Committing an empty custom field used to store an empty model ID that
+    /// only surfaced as an HTTP 400 during dictation; reset to the default
+    /// model instead.
+    private func commitCustom() {
+        guard !textDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            isCustom = false
+            onReset()
+            return
+        }
+        onCommit()
     }
 
     private func syncCustomState() {

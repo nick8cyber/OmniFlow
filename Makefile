@@ -15,15 +15,17 @@ TEST_RUNNER = $(BUILD_DIR)/OmniFlowTests
 TEST_PRODUCTION_SOURCES = \
 	Sources/AppContextService.swift \
 	Sources/AppName.swift \
+	Sources/AppSettingsDefaults.swift \
 	Sources/GeminiLiveTranscription.swift \
 	Sources/GeminiTranscription.swift \
 	Sources/LLMAPITransport.swift \
 	Sources/LLMCooldownManager.swift \
+	Sources/LiveAudioLevelNormalizer.swift \
 	Sources/ModelConfiguration.swift \
+	Sources/PostProcessingService.swift \
 	Sources/SemanticVersion.swift \
 	Sources/TranscriptTextCore.swift \
 	Sources/TranscriptionService.swift \
-	Sources/UpdateManager.swift \
 	Sources/ShortcutCore/DictationShortcutSessionController.swift \
 	Sources/ShortcutCore/ShortcutMatcher.swift \
 	Sources/ShortcutCore/ShortcutModels.swift

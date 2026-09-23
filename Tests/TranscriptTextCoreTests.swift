@@ -10,6 +10,7 @@ enum TranscriptTextCoreTests {
         testPostProcessedTranscriptSanitization()
         testModeSpecificSanitization()
         testInstructionExecutionGuard()
+        testPressEnterCommandParsing()
     }
 
     private static func jsonData(_ string: String) -> Data {
@@ -166,5 +167,62 @@ enum TranscriptTextCoreTests {
             cleanedTranscript: "Traduci questo in italiano",
             outputLanguage: "Italian"),
                "explicit output language must bypass the guard")
+    }
+
+    // MARK: - 9
+
+    private static func parse(_ transcript: String,
+                              pressEnterCommandEnabled: Bool = true,
+                              file: StaticString = #filePath,
+                              line: UInt = #line) -> TranscriptCommandParsing {
+        TranscriptCommandParser.parse(from: transcript,
+                                      pressEnterCommandEnabled: pressEnterCommandEnabled)
+    }
+
+    private static func testPressEnterCommandParsing() {
+        // Disabled switch: trimmed text, no command detected.
+        expectEqual(parse("Synthetic text. Press enter",
+                          pressEnterCommandEnabled: false),
+                    TranscriptCommandParsing(transcript: "Synthetic text. Press enter",
+                                             shouldPressEnterAfterPaste: false),
+                    "disabled command flag keeps the trimmed text untouched")
+
+        // Canonical tail forms are recognized and stripped.
+        expectEqual(parse("Synthetic text. Press enter"),
+                    TranscriptCommandParsing(transcript: "Synthetic text.",
+                                             shouldPressEnterAfterPaste: true),
+                    "plain press enter tail is stripped")
+        expectEqual(parse("Synthetic text, press enter!"),
+                    TranscriptCommandParsing(transcript: "Synthetic text",
+                                             shouldPressEnterAfterPaste: true),
+                    "separator punctuation and the trailing punctuation run are stripped")
+        expectEqual(parse("Synthetic text\npress\tenter"),
+                    TranscriptCommandParsing(transcript: "Synthetic text",
+                                             shouldPressEnterAfterPaste: true),
+                    "newline and tab separators are recognized")
+        expectEqual(parse("Press enter"),
+                    TranscriptCommandParsing(transcript: "",
+                                             shouldPressEnterAfterPaste: true),
+                    "a bare press enter command leaves an empty transcript")
+
+        // Case-insensitive matching.
+        expectEqual(parse("Synthetic text. PRESS ENTER!!!"),
+                    TranscriptCommandParsing(transcript: "Synthetic text.",
+                                             shouldPressEnterAfterPaste: true),
+                    "the command is case-insensitive")
+
+        // False positives stay intact.
+        expectEqual(parse("Synthetic text. Please press the enter key tomorrow."),
+                    TranscriptCommandParsing(transcript: "Synthetic text. Please press the enter key tomorrow.",
+                                             shouldPressEnterAfterPaste: false),
+                    "the command only matches as a tail, not in the middle")
+        expectEqual(parse("Synthetic text without any command"),
+                    TranscriptCommandParsing(transcript: "Synthetic text without any command",
+                                             shouldPressEnterAfterPaste: false),
+                    "plain text is returned trimmed with no command")
+        expectEqual(parse("   "),
+                    TranscriptCommandParsing(transcript: "",
+                                             shouldPressEnterAfterPaste: false),
+                    "whitespace-only input yields an empty no-command result")
     }
 }

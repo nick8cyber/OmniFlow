@@ -25,13 +25,16 @@ static func save(_ value: String, account: String)  // dict[account] = value; wr
 static func delete(account: String)            // dict.removeValue; write
 ```
 
+Каждый read-modify-write цикл сериализуется общим `NSLock` (API статический и
+доступен всему модулю; два конкурентных вызова не должны терять обновление).
+
 ### 1.3 Ключи (accounts), пишемые из AppState
 
 | Ключ | Что хранит | Правило записи |
 |---|---|---|
 | `groq_api_key` | главный API-ключ | пустое значение → `delete` |
 | `api_base_url` | главный base URL | пустое ИЛИ равное `defaultAPIBaseURL` (`https://api.groq.com/openai/v1`) → `delete` (дефолт НЕ сохраняется) |
-| `transcription_api_url` | переопределение URL транскрипции | пустое → `delete` (`persistOptionalAPIValue`) |
+| `transcription_api_url` | переопределение URL транскрипции | пустое (после trim) → `delete`, иначе сохраняется trim-нутым; при чтении из хранилища тоже trim-ится |
 | `transcription_api_key` | переопределение ключа транскрипции | пустое → `delete` |
 
 Остальные настройки приложения — в UserDefaults (см. `01-contracts.md`); в `.settings` живут только перечисленные.
@@ -104,7 +107,7 @@ private var resolvedTranscriptionAPIKey: String {
 - `loadPersistentStores` превращается в синхронный вызов: semaphore + `NSLock`, счётчик оставшихся колбэков = `max(1, descriptions.count)`; возвращается первая ошибка.
 - Схема восстановления:
   1. успех → `isStoreLoaded = true`;
-  2. провал → печать `"[PipelineHistoryStore] Failed to load persistent store at <path>. Attempting recovery."`; удалить файлы `<base>`, `<base>-wal`, `<base>-shm` (`destroySQLiteStoreFiles`); снять все `coordinator.persistentStores` (`try? coordinator.remove(store)`); пересоздать description и повторить загрузку;
+  2. провал → печать `"[PipelineHistoryStore] Failed to load persistent store at <path>. Attempting recovery."`; удалить файлы `<base>`, `<base>-wal`, `<base>-shm` (`destroySQLiteStoreFiles`); удалить осиротевшие записи аудио — все `audio/*.wav` в каталоге данных (`removeOrphanedAudioFiles`: строки-владельцы уничтожены вместе со стором, рекордер в этот каталог больше ничего не пишет); снять все `coordinator.persistentStores` (`try? coordinator.remove(store)`); пересоздать description и повторить загрузку;
   3. снова провал → печать `"[PipelineHistoryStore] Failed to recover persistent store. Falling back to in-memory history."`; снова снять stores; description с `type = NSInMemoryStoreType`; третья загрузка определяет `isStoreLoaded` (при неуспехе — false).
 - Все операции при `isStoreLoaded == false` — no-op (возврат пустых результатов).
 

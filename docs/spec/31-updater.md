@@ -254,6 +254,12 @@ Later» / «Wait» в диалогах.
 (`activeDownloadTask?.cancel()`) и запустить `Task { performUpdate(...) }`.
 
 `cancelDownload()`: cancel задачи; `downloadProgress = nil`; `updateStatus = .idle`.
+Отмена обязана останавливать скачивание по-настоящему: byte-loop живёт в
+detached-задаче (`networkDownloadTask`), которая **не наследует** отмену
+координатора, поэтому `cancelDownload`/`downloadAndInstall` отменяют и её;
+после скачивания и перед монтированием/`readyToRelaunch` —
+`Task.checkCancellation()`, ветки отмены тихо чистят temp (§7.2) и никогда не
+доходят до подмены/перезапуска.
 
 ### 7.2 performUpdate — фазы
 

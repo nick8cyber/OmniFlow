@@ -20,10 +20,13 @@ private var postProcessingTimeoutSeconds: TimeInterval {
 }
 ```
 
-`init(apiKey:baseURL:preferredModel:preferredFallbackModel:instructionExecutionGuardEnabled:)`:
+`init(apiKey:baseURL:preferredModel:preferredFallbackModel:instructionExecutionGuardEnabled:transport:)`:
 - `baseURL` по умолчанию `"https://api.groq.com/openai/v1"`;
 - `preferredModel` / `preferredFallbackModel` — trim, пустая строка означает «не задано»;
-- `instructionExecutionGuardEnabled` по умолчанию `true`.
+- `instructionExecutionGuardEnabled` по умолчанию `true`;
+- `transport` — HTTP-граница (`(URLRequest) async throws -> (Data, URLResponse)`),
+  по умолчанию `LLMAPITransport.data(for:)`; инъекция существует для
+  fallback-тестов на моках (спека 32 §11).
 
 `PostProcessingResult { transcript: String, prompt: String }` — `prompt` это display-строка вида:
 

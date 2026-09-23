@@ -114,12 +114,14 @@ struct GeneralSettingsView: View {
     @State private var transcriptionModelDraft = AppState.defaultTranscriptionModel
     @State private var isValidatingKey = false
     @State private var keyValidationSucceeded = false
-    @State private var keyValidationFailed = false
+    @State private var keyValidationFailureMessage: String?
     @State private var micPermissionGranted = false
     @State private var checkingForUpdates = false
     @State private var volumePreviewHintVisible = false
     @State private var launchAtLoginNeedsApproval = false
     @State private var screenCacheBuster = 0
+    @FocusState private var vocabularyFieldFocused: Bool
+    private let micPermissionPollTimer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
@@ -150,6 +152,12 @@ struct GeneralSettingsView: View {
         .onAppear(perform: initializeFields)
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)) { _ in
             screenCacheBuster += 1
+        }
+        .onReceive(micPermissionPollTimer) { _ in
+            // Accessibility and Screen Recording rows follow AppState's own
+            // polling; the microphone row needs its own re-check so granting
+            // access in System Settings is picked up while the window is open.
+            checkMicPermission()
         }
     }
 
@@ -258,6 +266,11 @@ struct GeneralSettingsView: View {
                 }
             }
             Toggle("Show menu bar icon", isOn: $showMenuBarIcon)
+            if !showMenuBarIcon {
+                Text("Turn it back on in Settings, or relaunch the app to reopen Settings.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -371,7 +384,7 @@ struct GeneralSettingsView: View {
                     .font(.system(size: NSFont.systemFontSize(for: .small), design: .monospaced))
                     .onChange(of: apiKeyInput) { _ in
                         keyValidationSucceeded = false
-                        keyValidationFailed = false
+                        keyValidationFailureMessage = nil
                     }
                 Button(isValidatingKey ? "Validating..." : "Save") {
                     validateAndSaveKey()
@@ -383,8 +396,8 @@ struct GeneralSettingsView: View {
                     .foregroundColor(.green)
                     .font(.caption)
             }
-            if keyValidationFailed {
-                Text("Validation failed. Please check your API key and provider settings, then try again.")
+            if let keyValidationFailureMessage {
+                Text(keyValidationFailureMessage)
                     .font(.caption)
                     .foregroundColor(.red)
             }
@@ -400,17 +413,20 @@ struct GeneralSettingsView: View {
         guard !trimmed.isEmpty else { return }
         isValidatingKey = true
         keyValidationSucceeded = false
-        keyValidationFailed = false
+        keyValidationFailureMessage = nil
         let baseURL = appState.apiBaseURL.isEmpty ? AppState.defaultAPIBaseURL : appState.apiBaseURL
         Task {
-            let valid = await TranscriptionService.validateAPIKey(trimmed, baseURL: baseURL)
+            let outcome = await TranscriptionService.validateAPIKey(trimmed, baseURL: baseURL)
             await MainActor.run {
                 isValidatingKey = false
-                if valid {
+                switch outcome {
+                case .valid:
                     appState.apiKey = trimmed
                     keyValidationSucceeded = true
-                } else {
-                    keyValidationFailed = true
+                case .invalidKey:
+                    keyValidationFailureMessage = "The provider rejected this API key. Check the key and provider settings, then try again."
+                case .unavailable(let detail):
+                    keyValidationFailureMessage = "Provider is unreachable — check your connection. \(detail)"
                 }
             }
         }
@@ -642,6 +658,7 @@ struct GeneralSettingsView: View {
                 .font(.system(size: NSFont.systemFontSize(for: .small), design: .monospaced))
                 .frame(minHeight: 80, maxHeight: 140)
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.secondary.opacity(0.3), lineWidth: 1))
+                .focused($vocabularyFieldFocused)
                 .onExitCommand {
                     commitVocabulary()
                 }
@@ -651,6 +668,15 @@ struct GeneralSettingsView: View {
         }
         .onDisappear {
             commitVocabulary()
+        }
+        .onChange(of: appState.customVocabulary) { newValue in
+            // External writes (e.g. "Paste Custom Word to Vocabulary" from the
+            // menu bar) must not be rolled back by the onDisappear commit.
+            // Same pattern as the provider draft fields: follow appState while
+            // the field is not being edited.
+            if !vocabularyFieldFocused {
+                customVocabularyDraft = newValue
+            }
         }
     }
 
@@ -1588,6 +1614,7 @@ private struct VoiceMacroEditorView: View {
 
 struct RunLogView: View {
     @EnvironmentObject private var appState: AppState
+    @State private var showsClearConfirmation = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -1601,7 +1628,7 @@ struct RunLogView: View {
                 }
                 Spacer()
                 Button("Clear History") {
-                    appState.clearPipelineHistory()
+                    showsClearConfirmation = true
                 }
                 .disabled(appState.pipelineHistory.isEmpty)
             }
@@ -1623,6 +1650,14 @@ struct RunLogView: View {
             }
         }
         .padding(16)
+        .confirmationDialog("Delete all \(appState.pipelineHistory.count) runs and their audio?",
+                            isPresented: $showsClearConfirmation,
+                            titleVisibility: .visible) {
+            Button("Delete All", role: .destructive) {
+                appState.clearPipelineHistory()
+            }
+            Button("Cancel", role: .cancel) {}
+        }
     }
 }
 
@@ -1944,6 +1979,7 @@ struct AudioPlayerView: View {
     @State private var isPlaying = false
     @State private var elapsed: TimeInterval = 0
     @State private var duration: TimeInterval = 0
+    @State private var isUnreadable = false
     @State private var progressTimer = Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
 
     struct DelegateHolder {
@@ -1951,6 +1987,23 @@ struct AudioPlayerView: View {
     }
 
     var body: some View {
+        Group {
+            if isUnreadable {
+                Label("Audio file is missing or unreadable", systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundColor(.orange)
+            } else {
+                playerControls
+            }
+        }
+        .onAppear {
+            // Deleted or truncated history files should surface as an error,
+            // not as a silent dead play button.
+            isUnreadable = !FileManager.default.fileExists(atPath: audioURL.path)
+        }
+    }
+
+    private var playerControls: some View {
         HStack(spacing: 10) {
             Button {
                 isPlaying ? stop() : play()
@@ -2011,7 +2064,7 @@ struct AudioPlayerView: View {
             elapsed = 0
             isPlaying = true
         } catch {
-            // Playback is best-effort.
+            isUnreadable = true
         }
     }
 

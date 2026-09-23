@@ -44,7 +44,8 @@
 | Файл | Ответственность | Зависимости |
 |---|---|---|
 | `Sources/TranscriptionService.swift` | `class TranscriptionService` — батчевая (файловая) транскрипция: multipart POST на `<base>/audio/transcriptions` (OpenAI-совместимый, напр. Groq) либо, для Gemini-моделей, JSON POST на Interactions API. Таймаут-гонка через `TranscriptionTimeoutRaceState`. `static friendlyHTTPMessage(status:host:)` — человекочитаемые ошибки по HTTP-статусу. `static validateAPIKey(_:baseURL:)` — GET `/models` c таймаутом 10 c. | `LLMAPITransport`, `GeminiTranscription`, `TranscriptionResponseParser` |
-| `Sources/TranscriptTextCore.swift` | Чистые функции: `enum TranscriptionResponseParser` (парсинг ответа транскрипции + фильтр галлюцинаций Whisper) и `enum TranscriptOutputSanitizer` (`postProcessedTranscript`, `commandModeTranscript`, `verbatimTranslation`, `appearsToHaveExecutedInstruction`). Покрыто тестами. | Foundation, os.log |
+| `Sources/TranscriptTextCore.swift` | Чистые функции: `enum TranscriptionResponseParser` (парсинг ответа транскрипции + фильтр галлюцинаций Whisper), `enum TranscriptOutputSanitizer` (`postProcessedTranscript`, `commandModeTranscript`, `verbatimTranslation`, `appearsToHaveExecutedInstruction`) и `enum TranscriptCommandParser` (press-enter команда §4.7). Покрыто тестами. | Foundation, os.log |
+| `Sources/AppSettingsDefaults.swift` | `enum AppSettingsDefaults` — дефолты свежей установки (§2.2: `commandModeEnabled = false`, `commandModeManualModifierRawValue = "option"`), вынесены из AppState, чтобы тестовый слой мог пиннить их без AppKit. | Foundation |
 | `Sources/GeminiTranscription.swift` | `enum GeminiTranscription` — проводной формат Google Interactions API для батчевых `gemini-*-transcribe` (не `-live`): `handlesModel`, `resolvedBaseURL`, `endpoint`, `requestBody`, `vocabularyTerms`, `failureMessage`, `transcript(fromResponse:)`. | Foundation |
 | `Sources/RealtimeTranscriptBackend.swift` | `protocol RealtimeTranscriptBackend: AnyObject` — контракт стримингового бэкенда (см. 01-contracts §3.2). | Foundation |
 | `Sources/RealtimeTranscriptionService.swift` | `final class RealtimeTranscriptionService: RealtimeTranscriptBackend` — OpenAI-совместимый realtime WebSocket (`session.update` → `input_audio_buffer.append` → `input_audio_buffer.commit` → события `conversation.item.input_audio_transcription.*`). `static deriveWebSocketURL(baseURL:model:language:)`. | Foundation, os.log |
@@ -414,7 +415,8 @@ private enum SessionIntent {
 
 `startRecording(triggerMode:)`:
 
-1. `guard !isRecording && !isTranscribing` (os_log замеры `CFAbsoluteTimeGetCurrent`).
+1. `guard !isRecording && !isTranscribing`; фиксируется `startRequestedAt = CFAbsoluteTimeGetCurrent()`
+   (os_log-замеры `CFAbsoluteTimeGetCurrent` — дельты от момента запроса, не абсолютное время).
 2. Забирает отложенные `pendingSelectionSnapshot` / `pendingManualCommandInvocation`
    и `cancelPendingShortcutStart()`.
 3. `prepareRecordingStart(triggerMode:selectionSnapshot:manualCommandRequested:startedAt:)`:
@@ -455,7 +457,8 @@ private enum SessionIntent {
    активного прерывания: `SystemAudioStatus.isDefaultOutputMuted()`; если уже muted —
    `activeAudioInterruption = .muted(previouslyMuted: true)` (ничего не трогать);
    иначе если `setDefaultOutputMuted(true)` удался — `.muted(previouslyMuted: false)`.
-6. `beginRecording(triggerMode:)`:
+6. `beginRecording(triggerMode:startRequestedAt:)`:
+   - os_log `"Starting recording after %.0f ms"` — дельта от `startRequestedAt` (type `.debug`);
    - `beginCriticalDictationActivity()` —
      `ProcessInfo.processInfo.disableAutomaticTermination("OmniFlow dictation in progress")`
      (флаг `automaticTerminationDisabled` защищает от двойного вызова);
@@ -556,6 +559,9 @@ private enum SessionIntent {
     - last*-поля контекста и статусов; `processingStatus = Self.statusMessage(for: outcome,
       parsedTranscript:)` (статус исхода + `"; detected press enter command"` при
       shouldPressEnterAfterPaste); `lastTranscript = финальный trimmed`;
+      `lastRawTranscript` и `rawTranscript` записи истории =
+      `parsedTranscript.transcript` (press-enter хвост уже вырезан — как в референсе;
+      retry переразбирает строку заново, так что семантика повтора не меняется);
     - `recordPipelineHistoryEntry(...)` — запись в `PipelineHistoryStore` (append +
       trim до 20, удаление вытесненных аудиофайлов) и `pipelineHistory = loadAllHistory()`;
     - `transcriptionTask = nil`, `transcribingAudioFileName = nil`,
@@ -710,8 +716,11 @@ Post-processing: `PostProcessingError` (см. 01-contracts) — 429 конвер
   (`AppContext(appName: nil, ..., currentActivity: item.contextSummary, ...)`);
   интент — `SessionIntent.fromPersisted(intent:selectedText:)`; повторяет полный
   конвейер parse → processTranscript; успех → обновление записи
-  (`pipelineHistoryStore.update`, `debugStatus = "Retried"`), вставка в клипборд
-  (`NSPasteboard.general` plain write) и `lastTranscript`; ошибка →
+  (`pipelineHistoryStore.update` под `do/catch` — ошибка сохранения не глушится:
+  `errorMessage = "Failed to save retry result: …"`, `rawTranscript` записи =
+  `parsedTranscript.transcript`, `debugStatus = "Retried"`); непустой результат →
+  вставка в клипборд (`NSPasteboard.general` plain write, `lastTranscript`) —
+  пустой результат НЕ трогает ни клипборд, ни `lastTranscript`; ошибка →
   `postProcessingStatus = "Error: ..."`, `debugStatus = "Retry failed"`;
   во время работы id в `retryingItemIDs`.
 - История: `clearPipelineHistory()` (store.clearAll + удаление аудио), `deleteHistoryEntry(id:)`.
@@ -953,6 +962,10 @@ Gemini Live: URL `<googleapis-host>/ws/google.ai.generativelanguage.v1beta.Gener
 `setupComplete` → `"Could not connect to Gemini live transcription. Check the transcription API key."`.
 
 ### 4.7 Press Enter voice command
+
+Парсер живёт в чистом ядре `TranscriptTextCore.swift` (`TranscriptCommandParser.parse(from:pressEnterCommandEnabled:)`
+→ `TranscriptCommandParsing {transcript, shouldPressEnterAfterPaste}`), чтобы быть
+покрытым тестовым сюитом; `AppState` только потребляет результат.
 
 Regex (`static let trailingPressEnterCommandPattern`, `try! NSRegularExpression`):
 

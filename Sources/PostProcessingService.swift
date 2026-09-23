@@ -35,6 +35,10 @@ enum PostProcessingError: LocalizedError {
 struct PostProcessingResult {
     let transcript: String
     let prompt: String
+    /// True when the request was skipped entirely because both the primary and
+    /// the fallback model were in cooldown (circuit breaker). The caller must
+    /// not report this as a successful post-processing run.
+    var skippedCooldown: Bool = false
 }
 
 final class PostProcessingService {
@@ -167,17 +171,22 @@ Rules:
     private let preferredModel: String
     private let preferredFallbackModel: String
     private let instructionExecutionGuardEnabled: Bool
+    /// HTTP boundary, injectable so the fallback matrices can be exercised on
+    /// scripted responses without network (spec 32 §1.3).
+    private let transport: (URLRequest) async throws -> (Data, URLResponse)
 
     init(apiKey: String,
          baseURL: String = "https://api.groq.com/openai/v1",
          preferredModel: String = "",
          preferredFallbackModel: String = "",
-         instructionExecutionGuardEnabled: Bool = true) {
+         instructionExecutionGuardEnabled: Bool = true,
+         transport: @escaping (URLRequest) async throws -> (Data, URLResponse) = { try await LLMAPITransport.data(for: $0) }) {
         self.apiKey = apiKey
         self.baseURL = baseURL
         self.preferredModel = preferredModel.trimmingCharacters(in: .whitespacesAndNewlines)
         self.preferredFallbackModel = preferredFallbackModel.trimmingCharacters(in: .whitespacesAndNewlines)
         self.instructionExecutionGuardEnabled = instructionExecutionGuardEnabled
+        self.transport = transport
     }
 
     private var postProcessingTimeoutSeconds: TimeInterval {
@@ -314,7 +323,7 @@ Rules:
         let retryModel = resolvedRetryModel(for: primary)
         guard let initialModel = await LLMCooldownManager.shared.effectivePrimary(primary, fallback: retryModel) else {
             // Circuit breaker: both models cooling down — skip the doomed request.
-            return PostProcessingResult(transcript: rawTranscript, prompt: "")
+            return PostProcessingResult(transcript: rawTranscript, prompt: "", skippedCooldown: true)
         }
         do {
             return try await cleanupAttempt(model: initialModel,
@@ -541,7 +550,7 @@ Rules:
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: payload)
 
-        let (data, response) = try await LLMAPITransport.data(for: request)
+        let (data, response) = try await transport(request)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw PostProcessingError.invalidResponse("No HTTP response")
         }

@@ -53,7 +53,7 @@ Dev-иконка — «hammer-on-waveform», чтобы в доке отлича
 `AppIcon-Source.png`, `AppIcon.icns`, `dmg-background.tiff` (+ png/@2x
 исходники), `demo.gif`.
 
-### TEST_PRODUCTION_SOURCES — точный список (13 файлов)
+### TEST_PRODUCTION_SOURCES — точный список (16 файлов)
 
 Компиляция тестов тянет **только** эти продакшн-файлы (UI/AppKit-слой в тесты
 не входит):
@@ -61,20 +61,28 @@ Dev-иконка — «hammer-on-waveform», чтобы в доке отлича
 ```
 Sources/AppContextService.swift
 Sources/AppName.swift
+Sources/AppSettingsDefaults.swift
 Sources/GeminiLiveTranscription.swift
 Sources/GeminiTranscription.swift
 Sources/LLMAPITransport.swift
 Sources/LLMCooldownManager.swift
+Sources/LiveAudioLevelNormalizer.swift
 Sources/ModelConfiguration.swift
+Sources/PostProcessingService.swift
+Sources/SemanticVersion.swift
 Sources/TranscriptTextCore.swift
 Sources/TranscriptionService.swift
-Sources/UpdateManager.swift
 Sources/ShortcutCore/DictationShortcutSessionController.swift
 Sources/ShortcutCore/ShortcutMatcher.swift
 Sources/ShortcutCore/ShortcutModels.swift
 ```
 
-`TEST_SOURCES = $(shell find Tests -name '*.swift' | LC_ALL=C sort)` (10 файлов,
+(`UpdateManager.swift` исключён из тестовой компоновки — он тянет AppKit ради
+одного `SemanticVersion`, а `SemanticVersion` давно живёт в отдельном файле;
+`PostProcessingService`/`LiveAudioLevelNormalizer`/`AppSettingsDefaults`
+добавлены сюитами аудита A.)
+
+`TEST_SOURCES = $(shell find Tests -name '*.swift' | LC_ALL=C sort)` (14 файлов,
 спека 32).
 
 ---

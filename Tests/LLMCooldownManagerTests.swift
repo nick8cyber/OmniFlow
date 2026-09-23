@@ -6,6 +6,10 @@ enum LLMCooldownManagerTests {
         testRetryAndTokenDurations()
         testMalformedDurationsUseSafeFallback()
         testPersistenceKeyIsStable()
+        runAndWait {
+            await testEffectivePrimaryReturnsNilWhenBothModelsCoolDown()
+            await testCooldownSkipReturnsRawTranscriptFlaggedAsSkipped()
+        }
     }
 
     private static let groqChatCompletionsURL =
@@ -79,5 +83,65 @@ enum LLMCooldownManagerTests {
         expectEqual(LLMCooldownManager.udKey(for: "openai/gpt-oss-20b"),
                     "llm_cooldown_expiry_openai/gpt-oss-20b",
                     "cooldown persistence key format is stable for SettingsView")
+    }
+
+    // MARK: - 5 (circuit breaker)
+
+    private static func testEffectivePrimaryReturnsNilWhenBothModelsCoolDown() async {
+        let manager = LLMCooldownManager()
+        await manager.setCooldown("suite.cb.primary", retryAfterSeconds: 300)
+        await manager.setCooldown("suite.cb.fallback", retryAfterSeconds: 300)
+        let effective = await manager.effectivePrimary("suite.cb.primary",
+                                                       fallback: "suite.cb.fallback")
+        expect(effective == nil,
+               "circuit breaker must return nil when primary and fallback are both cooling down")
+        let recovered = await manager.effectivePrimary("suite.cb.primary", fallback: "suite.cb.other")
+        expectEqual(recovered, "suite.cb.other",
+                    "a model outside the cooldown must remain usable")
+    }
+
+    // MARK: - 6 (cooldown skip is not a success)
+
+    private static func testCooldownSkipReturnsRawTranscriptFlaggedAsSkipped() async {
+        await LLMCooldownManager.shared.setCooldown("suite.skip.primary", retryAfterSeconds: 300)
+        await LLMCooldownManager.shared.setCooldown("suite.skip.fallback", retryAfterSeconds: 300)
+        let service = PostProcessingService(apiKey: "test-key",
+                                            baseURL: "https://api.groq.com/openai/v1",
+                                            preferredModel: "suite.skip.primary",
+                                            preferredFallbackModel: "suite.skip.fallback",
+                                            instructionExecutionGuardEnabled: false)
+        let context = AppContext(appName: nil,
+                                 bundleIdentifier: nil,
+                                 windowTitle: nil,
+                                 selectedText: nil,
+                                 currentActivity: "cooldown suite",
+                                 contextSystemPrompt: nil,
+                                 contextPrompt: nil,
+                                 screenshotDataURL: nil,
+                                 screenshotMimeType: nil,
+                                 screenshotError: nil)
+        do {
+            let result = try await service.postProcess(transcript: "emm so like cooldown test",
+                                                       context: context,
+                                                       customVocabulary: "")
+            expectEqual(result.transcript, "emm so like cooldown test",
+                        "cooldown skip must return the raw transcript untouched")
+            expectEqual(result.skippedCooldown, true,
+                        "cooldown skip must be flagged so the pipeline never reports success")
+            expectEqual(result.prompt, "", "cooldown skip must not carry a prompt")
+        } catch {
+            fatalError("\(#file):\(#line): postProcess unexpectedly threw \(error)")
+        }
+    }
+
+    // MARK: - Helpers
+
+    private static func runAndWait(_ body: @escaping () async -> Void) {
+        let semaphore = DispatchSemaphore(value: 0)
+        Task.detached {
+            await body()
+            semaphore.signal()
+        }
+        semaphore.wait()
     }
 }

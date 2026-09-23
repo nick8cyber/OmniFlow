@@ -1,10 +1,18 @@
 # 32 — Тесты
 
-Спека тестового слоя. Референс: `Tests/` — **10 файлов**: `TestMain.swift`,
-`TestSupport.swift` и **8 сюитов**: `AppContextServiceTests`,
-`GeminiLiveTranscriptionTests`, `GeminiTranscriptionTests`,
-`LLMCooldownManagerTests`, `ModelConfigurationTests`, `SemanticVersionTests`,
-`ShortcutCoreTests`, `TranscriptTextCoreTests`.
+Спека тестового слоя. Референс: `Tests/` — **14 файлов**: `TestMain.swift`,
+`TestSupport.swift` и **12 сюитов**: `AppContextServiceTests`,
+`AppSettingsDefaultsTests`, `GeminiLiveTranscriptionTests`,
+`GeminiTranscriptionTests`, `LiveAudioLevelNormalizerTests`,
+`LLMCooldownManagerTests`, `ModelConfigurationTests`,
+`PostProcessingFallbackTests`, `SemanticVersionTests`, `ShortcutCoreTests`,
+`TranscriptionServiceTests`, `TranscriptTextCoreTests`.
+(Сюит `TranscriptionServiceTests` добавлен аудитом B: контракт
+`validateAPIKey -> ValidateOutcome` (01 §4.1) требует покрытия, а отдельного
+сюита для `Sources/TranscriptionService.swift` не было. Сюиты
+`LiveAudioLevelNormalizerTests`, `PostProcessingFallbackTests`,
+`AppSettingsDefaultsTests` и press-enter блок `TranscriptTextCoreTests`
+добавлены фиксом по аудиту A.)
 
 Никакого XCTest: свой мини-раннер на `fatalError`. Первое непройденное
 ожидание роняет процесс с `file:line` — это и есть «красный» прогон.
@@ -20,12 +28,16 @@
 struct OmniFlowTests {
     static func main() {
         AppContextServiceTests.run()
+        AppSettingsDefaultsTests.run()
         GeminiLiveTranscriptionTests.run()
         GeminiTranscriptionTests.run()
+        LiveAudioLevelNormalizerTests.run()
         ModelConfigurationTests.run()
+        PostProcessingFallbackTests.run()
         ShortcutCoreTests.run()
         SemanticVersionTests.run()
         LLMCooldownManagerTests.run()
+        TranscriptionServiceTests.run()
         TranscriptTextCoreTests.run()
         print("OmniFlowTests passed")
     }
@@ -152,11 +164,13 @@ enum TestSupport {
 
 ## 4. TranscriptTextCoreTests (спека транскрипт-ядра)
 
-`run()` вызывает 8 тестов. Чистые функции:
+`run()` вызывает 9 тестов. Чистые функции:
 `TranscriptionResponseParser.parse(Data) throws -> String` (ошибка
-`TranscriptionResponseParsingError.invalidResponse`) и
+`TranscriptionResponseParsingError.invalidResponse`),
 `TranscriptOutputSanitizer` (`postProcessedTranscript`, `verbatimTranslation`,
-`commandModeTranscript`, `appearsToHaveExecutedInstruction`).
+`commandModeTranscript`, `appearsToHaveExecutedInstruction`) и
+`TranscriptCommandParser.parse(from:pressEnterCommandEnabled:)` (спека 00 §4.7,
+перенесён сюда из AppState аудитом A ради покрытия).
 
 1. **testJSONTranscriptParsing** — `{"text": "Synthetic transcript."}` →
    текст; `{"text": ""}` → `""`.
@@ -192,6 +206,13 @@ enum TestSupport {
    - «Sure, the synthetic launch is Friday.» без инструкции — **false**;
    - запрос «Translate…» с outputLanguage `Italian` и иноязычным выводом —
      **false** (явный перевод обходит guard).
+9. **testPressEnterCommandParsing** (регекс 00 §4.7) — выключенный флаг →
+   trimmed текст, `shouldPressEnterAfterPaste = false`; канонические хвосты
+   (`"Synthetic text. Press enter"`, `", press enter!"`, перенос/таб между
+   словами, `"PRESS ENTER!!!"`) → команда вырезана (сепаратор входит в match),
+   `true`; голое `"Press enter"` → пустой транскрипт + `true`; «press the
+   enter key» в середине и текст без команды → без изменений, `false`;
+   whitespace-only → `""` + `false`.
 
 ---
 
@@ -344,32 +365,127 @@ context-модели; `ModelConfiguration` (пересечение со спек
 
 ---
 
-## 10. Матрица «сьют → продакшн-файл»
+## 10. LiveAudioLevelNormalizerTests (спека аудио 20 §9)
+
+`run()` вызывает 8 тестов. Чистая value-тип структура
+`LiveAudioLevelNormalizer` (`normalizedLevel(forRMS:)`, `reset()`) — единственный
+сюит, закрывающий прежнее противоречие «спека 01 заявляет покрытие, сюита нет».
+
+1. **testConstantsMatchSpec** — все 13 констант (0.00001 / 18 / 8 / 3 / 0.12 /
+   0.06 / 4 / 0.12 / 0.02 / 0.55 / 0.04 / 0.45 / 0.12) в точности.
+2. **testSilenceStaysAtZero** — `rms = 0` → 0 на каждом из 10 вызовов.
+3. **testNoiseGateSilencesQuietInput** — −54 дБ (внутри floor+3 дБ) →
+   гейт 0.06 обнуляет, 10 вызовов подряд.
+4. **testFirstLoudSampleUsesAttackBlend** — −6 дБ (rms 0.5) на свежем
+   нормализаторе клампится в normalized 1.0 → первый вывод ровно 0.45.
+5. **testActiveSpeechIsVisible** — −51.9 дБ: внутри speech-маржи, но ниже
+   видимого пола 0.12 → bump до 0.12 (первый вывод 0.12·0.45); за 60 вызовов
+   вывод сходится к ≥ 0.119.
+6. **testAttackIsFasterThanRelease** — вход, растущий на +12 дБ/кадр, держит
+   normalized в 1.0 → display > 0.99 за 40 кадров; один кадр тишины — спад
+   ровно на release-бленд 0.12 (level·0.88) и > 0.45.
+7. **testCeilingAdaptationKeepsLoudInputBelowFullScale** — постоянный −26 дБ
+   (rms 0.05) поднимает peakCeiling → вывод стабилизируется в (0.5, 0.9),
+   не прилипая к 1.0.
+8. **testResetRestoresInitialState** — после громкого прогона `reset()` и тот
+   же вход дают снова 0.45.
+
+---
+
+## 11. PostProcessingFallbackTests (спека 11 §4.5–4.7, §6)
+
+`run()` вызывает 13 тестов. `PostProcessingService` с инъекцией транспорта
+(`init(..., transport:)`) на скриптованном in-process моке (`ScriptedTransport`):
+ответ выбирается по `model` из тела запроса, все вызовы записываются —
+никакой сети. Асинхронные тесты — через `runAndWait` (semaphore + detached Task,
+как в `LLMCooldownManagerTests`). Уникальные имена моделей на тест изолируют
+состояние `LLMCooldownManager.shared`; 429 без заголовков даёт in-memory
+кулдаун 60 c и не трогает UserDefaults.
+
+Cleanup (`postProcess`, spec 11 §4.5):
+1. **testCleanupRetriesOnRateLimitThenSucceeds** — primary 429 → fallback
+   отвечает → результат fallback'а, prompt называет fallback-модель, вызовы
+   `[primary, fallback]`.
+2. **testCleanupThrowsWhenBothAttemptsAreRateLimited** — оба 429 →
+   `PostProcessingError.rateLimited` (модель fallback), оба вызова.
+3. **testCleanupRetriesOnEmptyOutput** — primary `"   "` → `emptyOutput` →
+   fallback-текст возвращён, оба вызова.
+4. **testCleanupThrowsWhenBothAttemptsReturnEmptyOutput** — оба пустые →
+   `emptyOutput` после второй попытки.
+5. **testCleanupEmptySentinelIsNotRetried** — literal `EMPTY` (санитайзер → "")
+   возвращается пустым успехом, fallback НЕ вызывается — parity с референсом
+   (пустая проверка до санитайзера), зафиксировано специально.
+6. **testCleanupFallsBackToRawOnSuspectedInstructionExecution** — на «Write a
+   short story…» обе модели отвечают «Sure, here's…» → guard срабатывает дважды
+   → результат = raw транскрипт, prompt `""`, ровно 2 вызова.
+7. **testCleanupDoesNotRetryNonRetryableErrors** — HTTP 500 →
+   `requestFailed(500)`, ровно 1 вызов (fallback не тратится).
+8. **testCleanupCircuitBreakerSkipsTheRequest** — обе модели в кулдауне →
+   raw + `skippedCooldown == true` + prompt `""`, **0 вызовов**.
+
+Command (`commandTransform`, spec 11 §4.6):
+9. **testCommandPathRetriesOnRateLimit** — primary 429 → fallback →
+   «Edited text», вызовы `[primary, fallback]`.
+10. **testCommandPathHasNoInstructionGuard** — ассистентская преамбула в
+    ответе принимается как есть (guard в command-пути не вызывается), 1 вызов.
+11. **testCommandPathCircuitBreakerReturnsSelectedText** — кулдаун обеих →
+    trimmed selectedText, prompt `""`, 0 вызовов; флага `skippedCooldown`
+    (в отличие от cleanup) нет — по спеке 11 §6.
+
+Translate (`translateVerbatim`, spec 11 §4.7):
+12. **testTranslatePathRetriesOnEmptyOutput** — primary `"   "` → fallback
+    «Parole sintetiche».
+13. **testTranslatePathDoesNotRegisterCooldowns** — 429 → ретрай успешно; после
+    `isInCooldown(primary/fallback) == false` — translate не пишет кулдауны.
+
+---
+
+## 12. AppSettingsDefaultsTests (спека 00 §2.2, пиннинг дефолтов)
+
+`run()` вызывает 2 теста. AppState читает UserDefaults через константы
+`AppSettingsDefaults`, так что смена дефолта в проде ломает сюит.
+
+1. **testCommandModeIsDisabledByDefault** — `commandModeEnabled == false`
+   (A-P1-1: свежая установка не должна превращать диктовку в Edit Mode).
+2. **testManualModifierDefaultsToOption** — `commandModeManualModifierRawValue
+   == "option"` (A-P2-1: Cmd коллирует с дефолтным toggle-биндингом).
+
+---
+
+## 13. Матрица «сьют → продакшн-файл»
 
 | Сьют | Тестирует (продакшн) | Спека |
 |---|---|---|
-| `SemanticVersionTests` | `Sources/UpdateManager.swift` (SemanticVersion) | 31 |
+| `SemanticVersionTests` | `Sources/SemanticVersion.swift` | 31 |
 | `ShortcutCoreTests` | `Sources/ShortcutCore/` (ShortcutMatcher, ShortcutModels, DictationShortcutSessionController, ShortcutBinding) | 2x (шорткаты) |
 | `TranscriptTextCoreTests` | `Sources/TranscriptTextCore.swift` | 2x |
 | `ModelConfigurationTests` | `Sources/ModelConfiguration.swift` | 2x |
 | `AppContextServiceTests` | `Sources/AppContextService.swift` (+ModelConfiguration) | 2x |
 | `GeminiTranscriptionTests` | `Sources/GeminiTranscription.swift` | 2x |
 | `GeminiLiveTranscriptionTests` | `Sources/GeminiLiveTranscription.swift` | 2x |
-| `LLMCooldownManagerTests` | `Sources/LLMCooldownManager.swift` | 2x |
+| `LLMCooldownManagerTests` | `Sources/LLMCooldownManager.swift` (+PostProcessingService: circuit breaker / cooldown-skip) | 2x |
+| `TranscriptionServiceTests` | `Sources/TranscriptionService.swift` (validateAPIKey / ValidateOutcome, 01 §4.1) | 2x |
+| `LiveAudioLevelNormalizerTests` | `Sources/LiveAudioLevelNormalizer.swift` | 20 §9 |
+| `PostProcessingFallbackTests` | `Sources/PostProcessingService.swift` (fallback-матрицы, transport-инъекция) | 11 §4.5–4.7, §6 |
+| `AppSettingsDefaultsTests` | `Sources/AppSettingsDefaults.swift` (читается AppState) | 00 §2.2 |
 
 ---
 
 ## Чек-лист реализации тестов
 
-- [ ] TestMain `@main` вызывает 8 сьютов в фиксированном порядке, печатает `OmniFlowTests passed`
+- [ ] TestMain `@main` вызывает 12 сьютов в фиксированном порядке, печатает `OmniFlowTests passed`
 - [ ] TestSupport: expect / expectEqual / expectApproximatelyEqual (accuracy 1e-6) на fatalError c #filePath/#line
 - [ ] Каждый сьют — enum со static run() и приватными test-функциями
 - [ ] SemanticVersion: 4 теста §2, включая каноническую цепочку prerelease
 - [ ] ShortcutCore: 13 тестов §3 — lifecycle bare-Fn, specificity, side-specific Right Option, exact-modifier (прямые + через reducer), repeat-guard, copyAgain leading edge, backendReset, миграция/id, конфликты, 3 lifecycle контроллера
-- [ ] TranscriptTextCore: 8 тестов §4 — парсер JSON/fallback/invalid, подавление галлюцинаций по no_speech_prob, санитайзеры трёх режимов, instruction guard (5 кейсов)
+- [ ] TranscriptTextCore: 9 тестов §4 — парсер JSON/fallback/invalid, подавление галлюцинаций по no_speech_prob, санитайзеры трёх режимов, instruction guard (5 кейсов), press-enter парсер (regex 00 §4.7, 9 кейсов)
 - [ ] ModelConfiguration: алиасы, стабильные конфиги (4096/low/none), целостность списков, stripThinkTags
 - [ ] AppContextService: summary = первые 2 предложения для Qwen, strip <think>, no-op для не-Qwen, отсутствие deprecated моделей, reasoning off
 - [ ] GeminiTranscription: роутинг, подмена Groq-URL, smart-mode тело, словарь (дедуп/кап 1000/omit пустого), парсер transcript, failureMessage с массив-обёрткой
 - [ ] GeminiLive: роутинг без пересечений, socketURL fallback + drop query, setup-фрейм (models/, SMART, vocabulary), 24 kHz mime, классификация серверных фреймов + junk
-- [ ] LLMCooldownManager: дневной лимит приоритетен (179.56/true), durations, fallback 60 c, стабильный udKey
+- [ ] LLMCooldownManager: дневной лимит приоритетен (179.56/true), durations, fallback 60 c, стабильный udKey, circuit breaker (effectivePrimary == nil при двух моделях в кулдауне), cooldown-skip возвращает raw transcript c `skippedCooldown == true`
+- [ ] TranscriptionService: пустой ключ → `.invalidKey` без сети; статусы 200/401/403 → valid/invalidKey/invalidKey; 429/5xx → `.unavailable` c friendly-текстом; unreachableMessage различает таймаут
+- [ ] LiveAudioLevelNormalizer: 13 констант, гейты (0/0.06), bump 0.12, атака 0.45 против релиза 0.12, ceiling-адаптация, reset (§10)
+- [ ] PostProcessingFallback: cleanup 429/empty/suspected → fallback/raw, 500 не ретраится, circuit breaker без запросов; command — без guard и без флага skippedCooldown; translate — ретрай без записи кулдаунов (§11)
+- [ ] AppSettingsDefaults: command mode `false`, manual modifier `option` (§12)
 - [ ] Тесты без сети и без AppKit-зависимостей; компоновка только с TEST_PRODUCTION_SOURCES (спека 33)

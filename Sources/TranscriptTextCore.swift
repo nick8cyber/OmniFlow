@@ -163,3 +163,33 @@ enum TranscriptOutputSanitizer {
         return tokens
     }
 }
+
+// MARK: - Press-enter voice command (spec 00 §4.7)
+
+/// Result of scanning a transcript for a trailing "press enter" command.
+struct TranscriptCommandParsing: Equatable {
+    let transcript: String
+    let shouldPressEnterAfterPaste: Bool
+}
+
+enum TranscriptCommandParser {
+    static let pattern = "(?i)(?:^|[ \\t\\r\\n,;:\\-]+)press[ \\t\\r\\n]+enter[\\s\\p{P}]*$"
+
+    private static let trailingPressEnterCommandPattern = try! NSRegularExpression(pattern: pattern)
+
+    static func parse(from transcript: String,
+                      pressEnterCommandEnabled: Bool) -> TranscriptCommandParsing {
+        let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard pressEnterCommandEnabled else {
+            return TranscriptCommandParsing(transcript: trimmed, shouldPressEnterAfterPaste: false)
+        }
+        let range = NSRange(trimmed.startIndex..., in: trimmed)
+        guard let match = trailingPressEnterCommandPattern.firstMatch(in: trimmed, range: range),
+              let matchRange = Range(match.range, in: trimmed) else {
+            return TranscriptCommandParsing(transcript: trimmed, shouldPressEnterAfterPaste: false)
+        }
+        let remainder = String(trimmed[trimmed.startIndex..<matchRange.lowerBound])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return TranscriptCommandParsing(transcript: remainder, shouldPressEnterAfterPaste: true)
+    }
+}

@@ -371,8 +371,17 @@ class TranscriptionService {
     func transcribe(fileURL: URL) async throws -> String
     static func responseFormat(forModel model: String) -> String
     static func validateAPIKey(_ key: String,
-        baseURL: String = "https://api.groq.com/openai/v1") async -> Bool
+        baseURL: String = "https://api.groq.com/openai/v1") async -> ValidateOutcome
+    static func validateOutcome(forHTTPStatus status: Int, host: String?) -> ValidateOutcome
     static func friendlyHTTPMessage(status: Int, host: String?) -> String
+}
+
+/// Результат валидации ключа (аудит B, P1-2): различает отвергнутый ключ
+/// (HTTP 401/403) и недоступного провайдера (сеть/таймаут/429/5xx).
+enum ValidateOutcome: Equatable {
+    case valid
+    case invalidKey
+    case unavailable(String)   // user-facing detail
 }
 
 enum TranscriptionError: LocalizedError {

@@ -52,6 +52,9 @@ final class PipelineHistoryStore {
             let storePath = container.persistentStoreDescriptions.first?.url?.path ?? "unknown"
             print("[PipelineHistoryStore] Failed to load persistent store at \(storePath). Attempting recovery.")
             Self.destroySQLiteStoreFiles(at: storePath)
+            // The history rows that owned the recordings are gone with the
+            // store — remove the WAV files too instead of orphaning them.
+            Self.removeOrphanedAudioFiles()
             let coordinator = container.persistentStoreCoordinator
             for store in coordinator.persistentStores {
                 try? coordinator.remove(store)
@@ -287,6 +290,19 @@ final class PipelineHistoryStore {
         let fileManager = FileManager.default
         for suffix in ["", "-wal", "-shm"] {
             try? fileManager.removeItem(atPath: path + suffix)
+        }
+    }
+
+    /// After a store reset every `audio/<name>.wav` has lost its owning row,
+    /// so the whole catalog can go. Recording only ever writes here through
+    /// pipeline history, and the store loads before any recording can start.
+    private static func removeOrphanedAudioFiles() {
+        guard let directory = dataDirectory() else { return }
+        let audioDirectory = directory.appendingPathComponent("audio", isDirectory: true)
+        let fileManager = FileManager.default
+        guard let contents = try? fileManager.contentsOfDirectory(atPath: audioDirectory.path) else { return }
+        for fileName in contents where fileName.hasSuffix(".wav") {
+            try? fileManager.removeItem(atPath: audioDirectory.appendingPathComponent(fileName).path)
         }
     }
 

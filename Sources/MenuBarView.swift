@@ -83,6 +83,11 @@ struct MenuBarView: View {
             Button("Paste Custom Word to Vocabulary") {
                 if appState.pasteWordToVocabulary() != nil {
                     VocabularyNotificationManager.shared.flashCheckmark()
+                } else {
+                    // Empty clipboard or nothing new to add: without feedback
+                    // the user cannot tell "worked" from "did nothing".
+                    appState.errorMessage = "Nothing to add — the clipboard is empty or its words are already in the vocabulary."
+                    appState.statusText = "Nothing to add"
                 }
             }
             Divider()
