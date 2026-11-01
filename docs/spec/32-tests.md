@@ -363,8 +363,9 @@ context-модели; `ModelConfiguration` (пересечение со спек
    no-op; двойной `endSegment()` безопасен.
 5. **testFinalIncludesOpenSegmentTail** — `finalText()` включает незакрытый
    хвост («раз два три»).
-6. **testDeltaAppendsWithinSegment** — дельты старого протокола дополняют
-   сегмент («пер» + «вый текст» → «первый текст»).
+6. **testFinalReplacesRefinedInterimWithoutDuplicate** — регрессия дублей:
+   сервер шлифует сегмент и досылает финал — `feedFinal` ЗАМЕНЯЕТ интерим
+   («раз раз проверка связи» → «раз, раз, проверка связи»), не дополняет.
 
 ---
 

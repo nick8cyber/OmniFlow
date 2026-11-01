@@ -392,8 +392,17 @@ enum TranscriptionError: LocalizedError {
     case transcriptionTimedOut(TimeInterval)
     case pollFailed(String)
     case audioPreparationFailed(String)
+    case emptyTranscript        // «The provider returned an empty transcript.» — пустой вывод; transient для retry
+    case httpStatus(Int, String)// статус + сообщение; retry-политика видит код: ≥500 — transient, 429/4xx — fail fast
     var errorDescription: String? { get }
 }
+```
+
+Контракт retry-политики (спека 10 §3.3): **обе** HTTP-ветки (`processBatchResponse`
+и `transcribeWithGemini`) обязаны бросать `.httpStatus` — статус, зашитый в строку
+(`.submissionFailed`/`.transcriptionFailed`), невидим классификатору и приводит к
+ретраю 429 против того же поминутного токен-лимита (провайдер unmetered, лимит
+20k токенов/мин).
 ```
 
 ### 4.2 `TranscriptTextCore.swift`

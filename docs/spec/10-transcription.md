@@ -657,7 +657,7 @@ struct Configuration {
 
 ```swift
 struct ServerFrame {
-    var transcript: String?              // дельта: inputTranscription / modelTurn
+    var transcript: String?              // финал сегмента: inputTranscription (ЗАМЕНА); modelTurn не читается
     var interimTranscript: String?       // interimInputTranscription — ЗАМЕНА сегмента
     var activityStartsSegment = false    // voiceActivity ACTIVITY_START
     var activityEndsSegment = false      // voiceActivity ACTIVITY_END
@@ -829,7 +829,7 @@ private static func resolveRawTranscript(
 - [ ] Парсинг Interactions: сначала error-конверты ДВУХ форм (`{"error":{...}}` и `[{...}]`), затем `status == "completed"`, затем join `steps[type == nil || "model_output"].content[].text`, пусто → ошибка.
 - [ ] OpenAI Realtime: URL `ws(s)://host[/v1]/realtime?intent=transcription` (не дублировать `/v1`); `session.update` с `audio/pcm rate=24000`, `turn_detection: null`; `input_audio_buffer.append` (base64) и `.commit`; дельты/комплиты склеиваются в `finalText`, финал = commit отправлен + `partialText` пуст + `completed` после коммита; `error` → terminal; закрытие `.normalClosure`; сервер закрылся после completed → финал всё равно возвращается.
 - [ ] Gemini Live: `wss://generativelanguage.googleapis.com/ws/...BidiGenerateContent`; не-Google хост → дефолтный URL; `x-goog-api-key`; setup с `models/`-префиксом, `responseModalities: ["TEXT"]`, `inputAudioTranscription.mode = "SMART"`, опциональным `custom_vocabulary`; `realtimeInput.audio` с `audio/pcm;rate={sampleRate}` (24000 из `AudioRecorder.realtimeSampleRate`); конец — `audioStreamEnd: true`; закрытие `.goingAway`.
-- [ ] Парсинг Live-фреймов: `error` → ошибка; `setupComplete` → флаг + арминг таймера тишины; `voiceActivity` → границы сегментов; `serverContent.inputTranscription.text` либо `modelTurn.parts[].text` (дельта) и `interimInputTranscription.text` (замена сегмента, пустой отбрасывается); `turnComplete || generationComplete` → финал — пустой = успех `""`.
+- [ ] Парсинг Live-фреймов: `error` → ошибка; `setupComplete` → флаг + арминг таймера тишины + дренаж буфера; `voiceActivity` → границы сегментов; `serverContent.inputTranscription.text` (финал, ЗАМЕНА) и `interimInputTranscription.text` (замена сегмента, пустой = сброс сегмента); `modelTurn` игнорируется; `turnComplete || generationComplete` → финал — пустой = успех `""`.
 - [ ] `LiveTranscriptAccumulator`: interim и inputTranscription оба ЗАМЕНЯЮТ открытый сегмент (финал-уточнение не дублирует интерим), START/END коммят сегменты, пустые не коммятся, `finalText()` включает открытый хвост; `modelTurn` не потребляется.
 - [ ] Adaptive finish: minWait 0.8 с / settle 1.0 с / потолок 6.0 с / поллинг 0.08 с; тишина → resume success с `""`; поллинг идёт на `stateQueue` и бездействует после чужого resume.
 - [ ] Буфер аудио до setupComplete: pendingChunks, drop-oldest 200, flush по порядку захвата при handshake.
