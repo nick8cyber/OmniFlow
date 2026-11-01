@@ -7,6 +7,7 @@ enum GeminiLiveTranscriptionTests {
         testSetupAsksForSmartModeAndVocabulary()
         testAudioFramesDeclareTheRealSampleRate()
         testServerFramesAreClassified()
+        testInterimAndActivityFramesAreClassified()
     }
 
     private static let expectedSocketURL =
@@ -180,5 +181,29 @@ enum GeminiLiveTranscriptionTests {
         expect(!junk.isComplete, "junk frame is not complete")
         expectEqual(junk.errorMessage, String?.none, "junk frame has no error")
         expect(!junk.isSetupComplete, "junk frame is not setup")
+    }
+    private static func testInterimAndActivityFramesAreClassified() {
+        let interim = GeminiLiveTranscription.parseServerFrame(
+            #"{"serverContent": {"interimInputTranscription": {"text": "привет"}}}"#)
+        expectEqual(interim.interimTranscript, "привет",
+                    "transcribe-live interim text is classified")
+        expectEqual(interim.transcript, String?.none,
+                    "interim frame is not a delta chunk")
+        expect(!interim.isComplete, "interim frame is not complete")
+
+        let emptyInterim = GeminiLiveTranscription.parseServerFrame(
+            #"{"serverContent": {"interimInputTranscription": {"text": ""}}}"#)
+        expectEqual(emptyInterim.interimTranscript, String?.none,
+                    "an empty interim is dropped, not fed as replacement")
+
+        let start = GeminiLiveTranscription.parseServerFrame(
+            #"{"voiceActivity": {"type": "ACTIVITY_START"}}"#)
+        expect(start.activityStartsSegment, "ACTIVITY_START opens a segment")
+        expect(!start.activityEndsSegment, "ACTIVITY_START does not close a segment")
+
+        let end = GeminiLiveTranscription.parseServerFrame(
+            #"{"voiceActivity": {"type": "ACTIVITY_END"}}"#)
+        expect(end.activityEndsSegment, "ACTIVITY_END closes a segment")
+        expect(!end.activityStartsSegment, "ACTIVITY_END does not open a segment")
     }
 }

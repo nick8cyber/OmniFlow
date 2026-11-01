@@ -339,6 +339,48 @@ context-модели; `ModelConfiguration` (пересечение со спек
    `setupComplete` → `isSetupComplete`, но не complete;
    `error.message` → errorMessage и complete (ошибка заканчивает ход);
    мусор (`"not json"`) → ничего не выставлен, не падает.
+6. **testInterimAndActivityFramesAreClassified** — протокол transcribe-live:
+   `serverContent.interimInputTranscription.text` → `interimTranscript` (не
+   дельта, не complete); пустой интерим отбрасывается (`nil`);
+   `voiceActivity.type == "ACTIVITY_START"` → `activityStartsSegment` (не end);
+   `"ACTIVITY_END"` → `activityEndsSegment` (не start).
+
+---
+
+## 8b. LiveTranscriptAccumulatorTests (спека 10 §6.7)
+
+Порт вин-`LiveTranscriptAccumulatorTests` — регрессия «потерянного начала»:
+интерим transcribe-live ЗАМЕНЯЕТ открытый сегмент, сегменты коммятся по
+границам голосовой активности.
+
+1. **testInterimReplacesCurrentSegmentNotAccumulates** — два интерима подряд →
+   `current()` = последний («первый текст»), а не конкатенация.
+2. **testEndSegmentCommitsAndNextSegmentStartsClean** — после `endSegment()`
+   новый интерим не затирает закоммиченное («первая фраза целиком вторая»).
+3. **testStartSegmentClosesAnyOpenSegment** — `startSegment()` закрывает
+   открытый сегмент.
+4. **testEmptySegmentsAreNotCommitted** — пустые START/END — идемпотентные
+   no-op; двойной `endSegment()` безопасен.
+5. **testFinalIncludesOpenSegmentTail** — `finalText()` включает незакрытый
+   хвост («раз два три»).
+6. **testDeltaAppendsWithinSegment** — дельты старого протокола дополняют
+   сегмент («пер» + «вый текст» → «первый текст»).
+
+---
+
+## 8c. TranscriptionServiceTests — retry-политика (спека 10 §3.3)
+
+Порт вин-`ProviderRetryTests` (без сети — чистые функции + counting closure).
+
+1. **testRetryPolicyClassifiesErrors** — `isRetryableTranscriptionError`:
+   transient (да) = `emptyTranscript`, `transcriptionTimedOut`, `pollFailed`,
+   `uploadFailed`, `httpStatus(503)`, `URLError(.networkConnectionLost)`;
+   fail fast (нет) = `httpStatus(429)`, `httpStatus(401)`, `invalidBaseURL`,
+   `audioPreparationFailed`, `CancellationError`.
+2. **testRetryLoopRepeatsTransientFailuresOnSameProvider** —
+   `transcribeWithRetries`: 2×HTTP 503 → успех на 3-й попытке (ровно 3 вызова);
+   HTTP 401 → ровно 1 вызов и throw; пустой текст → 3 вызова → throw
+   `emptyTranscript`; успех с первой попытки → 1 вызов, без ретрая.
 
 ---
 

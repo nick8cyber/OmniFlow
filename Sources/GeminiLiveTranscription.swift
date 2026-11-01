@@ -3,6 +3,9 @@ import Foundation
 enum GeminiLiveTranscription {
     struct ServerFrame {
         var transcript: String?
+        var interimTranscript: String?
+        var activityStartsSegment = false
+        var activityEndsSegment = false
         var isComplete: Bool = false
         var errorMessage: String?
         var isSetupComplete: Bool = false
@@ -102,6 +105,13 @@ enum GeminiLiveTranscription {
         if root["setupComplete"] != nil {
             frame.isSetupComplete = true
         }
+        if let voiceActivity = root["voiceActivity"] as? [String: Any],
+           let kind = voiceActivity["type"] as? String {
+            // gemini-3.5-transcribe-live has no turnComplete: segment boundaries
+            // arrive as voice activity events instead.
+            frame.activityStartsSegment = kind == "ACTIVITY_START"
+            frame.activityEndsSegment = kind == "ACTIVITY_END"
+        }
         guard let server = root["serverContent"] as? [String: Any] else { return frame }
         var transcriptText: String?
         if let inputTranscription = server["inputTranscription"] as? [String: Any],
@@ -116,6 +126,11 @@ enum GeminiLiveTranscription {
             transcriptText = joined.isEmpty ? nil : joined
         }
         frame.transcript = transcriptText
+        if let interim = server["interimInputTranscription"] as? [String: Any],
+           let text = interim["text"] as? String, !text.isEmpty {
+            // transcribe-live models: interim text REPLACES the current segment.
+            frame.interimTranscript = text
+        }
         frame.isComplete = (server["turnComplete"] as? Bool ?? false)
             || (server["generationComplete"] as? Bool ?? false)
         return frame

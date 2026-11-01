@@ -6,6 +6,7 @@ struct OmniFlowTests {
         GeminiLiveTranscriptionTests.run()
         GeminiTranscriptionTests.run()
         LiveAudioLevelNormalizerTests.run()
+        LiveTranscriptAccumulatorTests.run()
         ModelConfigurationTests.run()
         PostProcessingFallbackTests.run()
         ShortcutCoreTests.run()

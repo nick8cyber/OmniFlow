@@ -119,6 +119,8 @@ final class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputS
     private var isSessionInterrupted = false
     private var readyFired = false
     private var failureReported = false
+    private var rearmed = false
+    private var lastDeviceUID: String?
     private let recordingFlagLock = OSAllocatedUnfairLock<Bool>(initialState: false)
     private let liveLevelNormalizerLock = OSAllocatedUnfairLock<LiveAudioLevelNormalizer>(
         initialState: LiveAudioLevelNormalizer())
@@ -144,6 +146,8 @@ final class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputS
         bufferCountLock.withLock { $0 = 0 }
         readyFired = false
         failureReported = false
+        rearmed = false
+        lastDeviceUID = deviceUID
         liveLevelNormalizerLock.withLock { $0.reset() }
 
         let outputURL = FileManager.default.temporaryDirectory
@@ -404,6 +408,16 @@ final class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputS
             }
             let count = self.bufferCountLock.withLock { $0 }
             if count == baselineCount {
+                // The first capture session after a long device idle can open
+                // fine yet deliver nothing (Windows parity). One silent re-open
+                // of the capture line wakes the device; only a second dead
+                // window fails the session for real. Safe only when nothing was
+                // recorded yet — re-opening recreates the output file.
+                if !self.rearmed, count == 0, self.rearmCapture() {
+                    os_log(.info, log: audioRecorderLog,
+                           "watchdog: no buffers, re-armed capture once")
+                    return
+                }
                 os_log(.error, log: audioRecorderLog,
                        "watchdog: no new buffers after %.1fs — giving up",
                        Self.watchdogTimeout)
@@ -416,6 +430,20 @@ final class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputS
         }
         watchdogTimer = timer
         timer.resume()
+    }
+
+    /// Re-opens the capture session with the same device and output file
+    /// (sessionQueue only). Returns false when the session cannot be rebuilt —
+    /// the caller then fails the recording as before.
+    private func rearmCapture() -> Bool {
+        guard let url = tempFileURL else { return false }
+        do {
+            try makeSession(deviceUID: lastDeviceUID, outputURL: url)
+        } catch {
+            return false
+        }
+        startBufferWatchdog()
+        return true
     }
 
     private func cancelWatchdog() {

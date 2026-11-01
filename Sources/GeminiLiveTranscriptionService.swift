@@ -17,15 +17,26 @@ final class GeminiLiveTranscriptionService: RealtimeTranscriptBackend {
     private let stateQueue = DispatchQueue(label: "com.nick8cyber.omniflow.gemini-live-transcription")
     private var socket: URLSessionWebSocketTask?
     private var receiveTask: Task<Void, Never>?
-    private var transcript = ""
+    private let accumulator = LiveTranscriptAccumulator()
     private var finalContinuation: CheckedContinuation<String, Error>?
     private var streamEnded = false
     private var closed = false
     private var setupCompleted = false
     private var terminalError: Error?
+    private var lastInterimAt = CFAbsoluteTimeGetCurrent()
+    private var streamEndedAt = CFAbsoluteTimeGetCurrent()
 
     private static let liveLog = OSLog(subsystem: "com.nick8cyber.omniflow",
                                        category: "GeminiLiveTranscription")
+    // Adaptive finish, ported from the Windows build (verified 2026-10-26):
+    // transcribe-live models keep refining the tail for up to ~3.2 s AFTER the
+    // audio stops, and pure silence never triggers the server's VAD at all —
+    // so the wait is bounded by quiet time, a post-stop minimum and a hard cap
+    // instead of waiting for a turnComplete that may never arrive.
+    private static let finishMinWait: TimeInterval = 0.8
+    private static let finishSettle: TimeInterval = 1.0
+    private static let finishTimeout: TimeInterval = 6.0
+    private static let finishPollInterval: TimeInterval = 0.08
 
     init(config: Configuration, session: URLSession = .shared) {
         self.config = config
@@ -94,9 +105,10 @@ final class GeminiLiveTranscriptionService: RealtimeTranscriptBackend {
                     return (nil, .failure(terminalError))
                 }
                 if streamEnded {
-                    return (nil, .success(transcript))
+                    return (nil, .success(accumulator.finalText()))
                 }
                 streamEnded = true
+                streamEndedAt = CFAbsoluteTimeGetCurrent()
                 finalContinuation = continuation
                 return (socket, nil)
             }
@@ -104,6 +116,7 @@ final class GeminiLiveTranscriptionService: RealtimeTranscriptBackend {
                 continuation.resume(with: outcome)
                 return
             }
+            scheduleAdaptiveFinishCheck()
             guard let message = streamEndMessage else {
                 let pending = stateQueue.sync { () -> CheckedContinuation<String, Error>? in
                     let stored = finalContinuation
@@ -120,6 +133,32 @@ final class GeminiLiveTranscriptionService: RealtimeTranscriptBackend {
                            "failed to send audio stream end: %{private}@", error.localizedDescription)
                 }
             }
+        }
+    }
+
+    /// Adaptive finish wait (see `finishMinWait`/`finishSettle`/`finishTimeout`).
+    /// Resumes with everything accumulated so far — empty on pure silence — so
+    /// the pipeline lands in the normal "Nothing to transcribe" path instead of
+    /// leaving the overlay spinner up forever. Runs on stateQueue.
+    private func scheduleAdaptiveFinishCheck() {
+        stateQueue.asyncAfter(deadline: .now() + Self.finishPollInterval) { [weak self] in
+            guard let self, let pending = self.finalContinuation else { return }
+            let now = CFAbsoluteTimeGetCurrent()
+            let sinceStop = now - self.streamEndedAt
+            let sinceLast = now - self.lastInterimAt
+            let timedOut = sinceStop >= Self.finishTimeout
+            guard timedOut || (sinceStop >= Self.finishMinWait && sinceLast >= Self.finishSettle) else {
+                self.scheduleAdaptiveFinishCheck()
+                return
+            }
+            self.finalContinuation = nil
+            self.closed = true
+            if timedOut {
+                os_log(.info, log: Self.liveLog,
+                       "live finish timed out after %.0fs; returning %{public}d transcript characters",
+                       Self.finishTimeout, Int32(self.accumulator.finalText().count))
+            }
+            pending.resume(returning: self.accumulator.finalText())
         }
     }
 
@@ -171,6 +210,9 @@ final class GeminiLiveTranscriptionService: RealtimeTranscriptBackend {
         if frame.isSetupComplete {
             stateQueue.sync {
                 setupCompleted = true
+                // Arm the settle timer from setup: with pure silence no interim
+                // ever arrives, and the adaptive finish must still fire.
+                lastInterimAt = CFAbsoluteTimeGetCurrent()
             }
             return
         }
@@ -195,10 +237,23 @@ final class GeminiLiveTranscriptionService: RealtimeTranscriptBackend {
             }
             return
         }
-        if let chunk = frame.transcript, !chunk.isEmpty {
+        if frame.activityStartsSegment || frame.activityEndsSegment || frame.interimTranscript != nil || frame.transcript != nil {
             let snapshot = stateQueue.sync { () -> String in
-                transcript += chunk
-                return transcript
+                let now = CFAbsoluteTimeGetCurrent()
+                lastInterimAt = now
+                if frame.activityStartsSegment {
+                    accumulator.startSegment()
+                }
+                if frame.activityEndsSegment {
+                    accumulator.endSegment()
+                }
+                if let interim = frame.interimTranscript {
+                    accumulator.feedInterim(interim)
+                }
+                if let delta = frame.transcript {
+                    accumulator.feedDelta(delta)
+                }
+                return accumulator.current()
             }
             DispatchQueue.main.async { [weak self] in
                 self?.onPartialUpdate?(snapshot)
@@ -208,16 +263,14 @@ final class GeminiLiveTranscriptionService: RealtimeTranscriptBackend {
             var pendingContinuation: CheckedContinuation<String, Error>?
             var outcome: Result<String, Error>?
             stateQueue.sync {
-                let final = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+                // turnComplete is the server's final word even when nothing was
+                // recognized: an empty transcript ends the session normally
+                // instead of triggering a redundant batch round-trip.
                 if let stored = finalContinuation {
                     finalContinuation = nil
                     closed = true
                     pendingContinuation = stored
-                    outcome = final.isEmpty
-                        ? .failure(RealtimeTranscriptionError.closedBeforeFinal)
-                        : .success(final)
-                } else if final.isEmpty {
-                    terminalError = RealtimeTranscriptionError.closedBeforeFinal
+                    outcome = .success(accumulator.finalText())
                 } else {
                     closed = true
                 }

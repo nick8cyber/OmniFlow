@@ -75,6 +75,12 @@ struct MenuBarView: View {
             }
 
             Divider()
+            if !appState.lastFailedAudioFileName.isEmpty && !appState.isRecording && !appState.isTranscribing {
+                Button("Paste Last Recording") {
+                    appState.retryLastRecording()
+                }
+                Divider()
+            }
             if !appState.lastTranscript.isEmpty && !appState.isRecording && !appState.isTranscribing {
                 pasteAgainSection
             }

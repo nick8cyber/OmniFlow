@@ -411,6 +411,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var realtimeStreamingModel: String {
         didSet { UserDefaults.standard.set(realtimeStreamingModel, forKey: "realtime_streaming_model") }
     }
+    @Published var lastFailedAudioFileName: String {
+        didSet { UserDefaults.standard.set(lastFailedAudioFileName, forKey: "last_failed_audio_file") }
+    }
     @Published var dictationAudioInterruptionEnabled: Bool {
         didSet {
             UserDefaults.standard.set(dictationAudioInterruptionEnabled,
@@ -524,6 +527,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private(set) var isCapturingShortcut = false
     private var accessibilityTimer: Timer?
     private var audioLevelCancellable: AnyCancellable?
+    private var sessionPeakAudioLevel: Float = 0
     private var debugOverlayTimer: DispatchSourceTimer?
     private var recordingInitializationTimer: DispatchSourceTimer?
     private var initializingOverlayVisible = false
@@ -581,6 +585,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         shortcutStartDelay = max(0, UserDefaults.standard.double(forKey: "shortcut_start_delay"))
         realtimeStreamingEnabled = UserDefaults.standard.bool(forKey: "realtime_streaming_enabled")
         realtimeStreamingModel = UserDefaults.standard.string(forKey: "realtime_streaming_model") ?? ""
+        lastFailedAudioFileName = UserDefaults.standard.string(forKey: "last_failed_audio_file") ?? ""
         dictationAudioInterruptionEnabled = UserDefaults.standard.bool(forKey: "dictation_audio_interruption_enabled")
         preserveClipboard = UserDefaults.standard.object(forKey: "preserve_clipboard") as? Bool ?? true
         preserveExactWording = UserDefaults.standard.bool(forKey: "preserve_exact_wording")
@@ -1250,10 +1255,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
             DispatchQueue.main.async {
                 guard let self, self.isRecording, self.activeRecordingTriggerMode != nil else { return }
                 self.startContextCapture()
+                self.sessionPeakAudioLevel = 0
                 self.audioLevelCancellable = self.audioRecorder.$audioLevel
                     .receive(on: DispatchQueue.main)
                     .sink { [weak self] level in
-                        self?.overlayManager.updateAudioLevel(level)
+                        guard let self else { return }
+                        if level > self.sessionPeakAudioLevel {
+                            self.sessionPeakAudioLevel = level
+                        }
+                        self.overlayManager.updateAudioLevel(level)
                     }
             }
         }
@@ -1298,12 +1308,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private func startContextCapture() {
         contextCaptureTask?.cancel()
         capturedContext = nil
+        overlayManager.updateTargetApp("")
         lastContextScreenshotStatus = "Collecting screenshot..."
         let service = contextService
         contextCaptureTask = Task { () -> AppContext in
             let context = await service.collectContext()
             await MainActor.run { [weak self] in
                 self?.capturedContext = context
+                self?.overlayManager.updateTargetApp(context.appName ?? "")
             }
             return context
         }
@@ -1436,7 +1448,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 let fileService = try self.makeTranscriptionService()
                 let rawTranscript = try await Self.resolveRawTranscript(realtimeService: activeRealtime,
                                                                         fileService: fileService,
-                                                                        fileURL: transcriptionFileURL)
+                                                                        fileURL: transcriptionFileURL,
+                                                                        peakAudioLevel: self.sessionPeakAudioLevel)
                 let parsedTranscript = TranscriptCommandParser.parse(
                     from: rawTranscript,
                     pressEnterCommandEnabled: self.isPressEnterVoiceCommandEnabled)
@@ -1453,7 +1466,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 if appContext == nil {
                     appContext = self.fallbackContextAtStop()
                 }
-                guard let resolvedContext = appContext else { return }
+                guard let resolvedContext = appContext else {
+                    await MainActor.run { self.failSafeResetTranscriptionState() }
+                    return
+                }
                 try Task.checkCancellation()
                 await MainActor.run {
                     self.debugStatusMessage = "Running post-processing"
@@ -1580,11 +1596,19 @@ final class AppState: ObservableObject, @unchecked Sendable {
         if appContext == nil {
             appContext = fallbackContextAtStop()
         }
-        guard let resolvedContext = appContext else { return }
+        guard let resolvedContext = appContext else {
+            await MainActor.run { self.failSafeResetTranscriptionState() }
+            return
+        }
         let message = Self.formattedTranscriptionError(error)
         errorMessage = message
         statusText = "Error"
         overlayManager.showError(userFacingErrorMessage(for: error))
+        // Keep the audio so the menu-bar "Paste Last Recording" retry can
+        // recover the dictation (Windows tray parity).
+        if let savedAudioFile {
+            lastFailedAudioFileName = savedAudioFile.fileName
+        }
         lastRawTranscript = ""
         lastPostProcessedTranscript = ""
         lastPostProcessingPrompt = ""
@@ -1604,6 +1628,22 @@ final class AppState: ObservableObject, @unchecked Sendable {
         transcribingAudioFileName = nil
         isTranscribing = false
         endCriticalDictationActivity()
+        audioRecorder.cleanup()
+        refreshAvailableMicrophonesIfNeeded()
+    }
+
+    /// Failsafe for the unreachable-context paths: nothing else dismisses the
+    /// overlay there, so a bare `return` would leave the transcribing spinner
+    /// up forever.
+    @MainActor
+    private func failSafeResetTranscriptionState() {
+        transcriptionTask = nil
+        transcribingAudioFileName = nil
+        isTranscribing = false
+        endCriticalDictationActivity()
+        errorMessage = "Transcription could not continue: app context unavailable."
+        statusText = "Error"
+        overlayManager.showError("Transcription could not continue.")
         audioRecorder.cleanup()
         refreshAvailableMicrophonesIfNeeded()
     }
@@ -1690,6 +1730,57 @@ final class AppState: ObservableObject, @unchecked Sendable {
         try? FileManager.default.removeItem(at: Self.audioStorageDirectory().appendingPathComponent(fileName))
     }
 
+    /// Re-transcribes the last failed recording (menu bar) and pastes it; the
+    /// marker is cleared on success so a stale recording cannot be pasted twice
+    /// by accident (Windows tray parity).
+    func retryLastRecording() {
+        guard !isRecording, !isTranscribing else { return }
+        let fileName = lastFailedAudioFileName
+        guard !fileName.isEmpty else { return }
+        let audioURL = Self.audioStorageDirectory().appendingPathComponent(fileName)
+        guard FileManager.default.fileExists(atPath: audioURL.path) else {
+            lastFailedAudioFileName = ""
+            return
+        }
+        isTranscribing = true
+        statusText = "Retrying last recording..."
+        transcriptionTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let service = try self.makeTranscriptionService()
+                let raw = try await service.transcribe(fileURL: audioURL)
+                let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                await MainActor.run {
+                    self.transcriptionTask = nil
+                    self.isTranscribing = false
+                    guard !trimmed.isEmpty else {
+                        self.statusText = "Retry produced no text"
+                        return
+                    }
+                    self.lastFailedAudioFileName = ""
+                    self.lastTranscript = trimmed
+                    self.statusText = "Pasted at cursor!"
+                    _ = self.writeTranscriptToPasteboard(trimmed)
+                    self.pasteAtCursor()
+                }
+            } catch is CancellationError {
+                await MainActor.run {
+                    self.transcriptionTask = nil
+                    self.isTranscribing = false
+                    self.statusText = "Cancelled"
+                }
+            } catch {
+                await MainActor.run {
+                    self.transcriptionTask = nil
+                    self.isTranscribing = false
+                    self.statusText = "Error"
+                    self.errorMessage = error.localizedDescription
+                    self.overlayManager.showError(self.userFacingErrorMessage(for: error))
+                }
+            }
+        }
+    }
+
     // MARK: Transcript processing pipeline
 
     private func processTranscript(_ rawTranscript: String,
@@ -1754,14 +1845,25 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     private static func resolveRawTranscript(realtimeService: (any RealtimeTranscriptBackend)?,
                                              fileService: TranscriptionService,
-                                             fileURL: URL) async throws -> String {
+                                             fileURL: URL,
+                                             peakAudioLevel: Float) async throws -> String {
         if let realtimeService {
             try Task.checkCancellation()
             do {
-                return try await withTaskCancellationHandler {
+                let liveText = try await withTaskCancellationHandler {
                     try await realtimeService.commitAndAwaitFinal()
                 } onCancel: {
                     realtimeService.cancel()
+                }
+                let trimmed = liveText.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    return trimmed
+                }
+                // Live produced nothing. Digital silence ends here ("Nothing to
+                // transcribe"); audible audio still gets the WAV transcribed —
+                // the Live session may have failed while the speech is in the file.
+                if peakAudioLevel < Self.silencePeakLevelThreshold {
+                    return ""
                 }
             } catch let error as CancellationError {
                 throw error
@@ -1771,6 +1873,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
         return try await fileService.transcribe(fileURL: fileURL)
     }
+
+    /// Below this normalized peak the microphone delivered (near) silence, and
+    /// a WAV round-trip would only burn quota on a guaranteed-empty answer.
+    private static let silencePeakLevelThreshold: Float = 0.03
 
     private static func statusMessage(for outcome: TranscriptProcessingOutcome,
                                       parsedTranscript: TranscriptCommandParsing,
@@ -1822,6 +1928,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return
         }
         realtimeService = service
+        service.onPartialUpdate = { [weak self] text in
+            self?.overlayManager.updateInterimTranscript(text)
+        }
         audioRecorder.onPCM16Samples = { [weak service] data in
             service?.appendPCM16(data)
         }
@@ -1831,6 +1940,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         audioRecorder.onPCM16Samples = nil
         realtimeService?.cancel()
         realtimeService = nil
+        overlayManager.updateInterimTranscript("")
     }
 
     // MARK: Service factories

@@ -19,6 +19,8 @@ enum TranscriptionError: LocalizedError {
     case transcriptionTimedOut(TimeInterval)
     case pollFailed(String)
     case audioPreparationFailed(String)
+    case emptyTranscript
+    case httpStatus(Int, String)
 
     var errorDescription: String? {
         switch self {
@@ -36,6 +38,10 @@ enum TranscriptionError: LocalizedError {
             return "Polling failed: \(message)"
         case .audioPreparationFailed(let message):
             return "Audio preparation failed: \(message)"
+        case .emptyTranscript:
+            return "The provider returned an empty transcript."
+        case .httpStatus(_, let message):
+            return message
         }
     }
 }
@@ -79,7 +85,64 @@ class TranscriptionService {
         return override > 0 ? override : 20
     }
 
+    /// Total transcription attempts per provider: the initial request plus two
+    /// retries (Windows parity — a manual repeat has resolved every transient
+    /// failure: cold upstream after idle, dropped pooled connection, truncated
+    /// response).
+    static let transcriptionAttempts = 3
+
     func transcribe(fileURL: URL) async throws -> String {
+        try await Self.transcribeWithRetries { [self] in
+            try await transcribeAttempt(fileURL: fileURL)
+        }
+    }
+
+    /// Retry loop: the initial request plus `attempts - 1` same-provider
+    /// retries for transient failures; deterministic errors throw immediately
+    /// and exhausted empty output throws `emptyTranscript`.
+    static func transcribeWithRetries(attempts: Int = transcriptionAttempts,
+                                      operation: () async throws -> String) async throws -> String {
+        var lastError: Error?
+        for attempt in 1...max(1, attempts) {
+            do {
+                let transcript = try await operation()
+                if !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    return transcript
+                }
+                lastError = TranscriptionError.emptyTranscript
+            } catch {
+                lastError = error
+                guard attempt < attempts, Self.isRetryableTranscriptionError(error) else {
+                    throw error
+                }
+                os_log(.info, log: transcriptionLog,
+                       "transcription attempt %{public}d failed with a transient error, retrying: %{private}@",
+                       attempt, String(describing: error))
+            }
+        }
+        throw lastError ?? TranscriptionError.emptyTranscript
+    }
+
+    /// Errors a repeat can actually fix (Windows parity). Deterministic
+    /// failures are retried nowhere: cancellations, rate limits (the fallback
+    /// chain owns those) and HTTP 4xx client errors (bad key, wrong URL) fail
+    /// fast so quota is not burned on guaranteed-identical repeats.
+    static func isRetryableTranscriptionError(_ error: Error) -> Bool {
+        if error is CancellationError { return false }
+        switch error as? TranscriptionError {
+        case .emptyTranscript, .transcriptionTimedOut, .pollFailed,
+             .uploadFailed, .submissionFailed, .transcriptionFailed:
+            return true
+        case .httpStatus(let status, _):
+            return status >= 500
+        case .invalidBaseURL, .audioPreparationFailed:
+            return false
+        case nil:
+            return error is URLError
+        }
+    }
+
+    private func transcribeAttempt(fileURL: URL) async throws -> String {
         let timeoutSeconds = transcriptionTimeoutSeconds
         let race = TranscriptionTimeoutRaceState()
         return try await withTaskCancellationHandler {
@@ -304,7 +367,8 @@ class TranscriptionService {
             os_log(.error, log: transcriptionLog,
                    "transcription request failed: HTTP %{public}d body %{private}@",
                    httpResponse.statusCode, bodyString)
-            throw TranscriptionError.submissionFailed(
+            throw TranscriptionError.httpStatus(
+                httpResponse.statusCode,
                 Self.friendlyHTTPMessage(status: httpResponse.statusCode,
                                          host: httpResponse.url?.host))
         }

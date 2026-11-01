@@ -97,9 +97,39 @@ private var transcriptionTimeoutSeconds: TimeInterval {
 ```
 Дефолт — 20 секунд; override ключом `transcription_timeout_seconds` (только если > 0).
 
-### 3.3. Гонка с таймаутом (`transcribe(fileURL:)`)
+### 3.3. Retry-политика (`transcribe(fileURL:)`)
 
-`transcribe(fileURL:)` оборачивает загрузку в `withTaskCancellationHandler` + `withCheckedThrowingContinuation` + класс `TranscriptionTimeoutRaceState` (NSLock + флаг `didFinish`):
+`transcribe(fileURL:)` — retry-цикл (порт вин-версии, `ProviderRouter.TranscribeAttempts`):
+`static let transcriptionAttempts = 3` (начальный запрос + два повтора). Каждый
+попытка — отдельный вызов `transcribeAttempt(fileURL:)` со своей полной гонкой
+таймаута (см. 3.3.1). Успех = непустой результат; пустой считается ошибкой
+`.emptyTranscript` и ретраится. После исчерпания попыток бросается последняя
+ошибка (`lastError ?? .emptyTranscript`).
+
+```swift
+static func transcribeWithRetries(attempts: Int = transcriptionAttempts,
+                                  operation: () async throws -> String) async throws -> String
+```
+
+Ретраятся только transient-ошибки — те, что повтор может починить
+(`isRetryableTranscriptionError`, паритет `ProviderRouter.ShouldRetrySameProvider`):
+
+| Класс | Кейсы | Ретрай? |
+|---|---|---|
+| Пустой вывод | `.emptyTranscript` | да |
+| Таймаут | `.transcriptionTimedOut` | да |
+| Битый ответ | `.pollFailed`, `.transcriptionFailed` | да |
+| Транспорт | `.uploadFailed`, `.submissionFailed`, `URLError` | да |
+| HTTP | `.httpStatus(status)` | только `status >= 500` |
+| Детерминированные | `.httpStatus` 4xx/429 (rate limit ведает фолбэк-цепочка), `.invalidBaseURL`, `.audioPreparationFailed`, `CancellationError` | нет — fail fast, квота не жжётся |
+
+Лог повтора — `os_log(.info, log: transcriptionLog, "transcription attempt %d failed with a transient error, retrying: …")`.
+Основание (из вин-README): ручной повтор решал каждый transient-сбой — холодный
+апстрим после простоя, уроненный pooled connection, обрезанный ответ.
+
+### 3.3.1. Гонка с таймаутом (`transcribeAttempt(fileURL:)`)
+
+Одна попытка оборачивается в `withTaskCancellationHandler` + `withCheckedThrowingContinuation` + класс `TranscriptionTimeoutRaceState` (NSLock + флаг `didFinish`):
 - Запускаются две `Task`: загрузка (`transcribeAudio(fileURL:)`) и таймер `Task.sleep(timeoutSeconds)`.
 - Кто первый вызвал `finish(_:)` — тот резюмит continuation; вторая задача отменяется.
 - Отмена внешней задачи → `finish(.failure(CancellationError()))`.
@@ -222,8 +252,15 @@ enum TranscriptionError: LocalizedError {
     case transcriptionTimedOut(TimeInterval) // "Transcription timed out after \(Int(seconds))s"
     case pollFailed(String)                  // "Polling failed: \(msg)"
     case audioPreparationFailed(String)      // "Audio preparation failed: \(msg)"
+    case emptyTranscript                     // "The provider returned an empty transcript."
+    case httpStatus(Int, String)             // сообщение = friendlyHTTPMessage(status:host:)
 }
 ```
+
+`.httpStatus` бросается вместо `.submissionFailed` из `processBatchResponse` —
+код статуса нужен для retry-классификации (§3.3). `.emptyTranscript` бросает
+батч Gemini (`transcript(fromResponse:)`) при пустом тексте и сам retry-цикл
+при исчерпании пустых ответов.
 
 ---
 
@@ -612,24 +649,42 @@ struct Configuration {
 
 ### 6.6. Парсинг серверных фреймов `parseServerFrame(_:)`
 
-`ServerFrame { transcript: String?, isComplete: Bool, errorMessage: String?, isSetupComplete: Bool }`.
+```swift
+struct ServerFrame {
+    var transcript: String?              // дельта: inputTranscription / modelTurn
+    var interimTranscript: String?       // interimInputTranscription — ЗАМЕНА сегмента
+    var activityStartsSegment = false    // voiceActivity ACTIVITY_START
+    var activityEndsSegment = false      // voiceActivity ACTIVITY_END
+    var isComplete: Bool = false
+    var errorMessage: String?
+    var isSetupComplete: Bool = false
+}
+```
 
 Порядок разбора входящего текстового фрейма:
 1. Не JSON-объект → пустой frame (ничего из флагов).
 2. `root["error"]` — объект → `errorMessage = error["message"] ?? "Gemini live transcription failed."`, `isComplete = true`.
 3. `root["setupComplete"]` присутствует (любое значение) → `isSetupComplete = true`.
-4. `root["serverContent"]` — объект:
+4. `root["voiceActivity"]` — объект: `type == "ACTIVITY_START"` → `activityStartsSegment`; `"ACTIVITY_END"` → `activityEndsSegment`. Модели семейства `gemini-*-transcribe-live` шлют границы сегментов голосовой активностью, а не turnComplete.
+5. `root["serverContent"]` — объект:
    - `inputTranscription.text` (String) → `transcript`; **иначе** `modelTurn.parts` — массив объектов → join их непустых `text`; пустой join → `transcript = nil`.
+   - `interimInputTranscription.text` непустой String → `interimTranscript`. Пустой интерим отбрасывается (не подаётся как замена). Транскрайб-live модели шлют interim в этом поле; текст **заменяет** открытый сегмент, а не дополняет его.
    - `isComplete = (server["turnComplete"] as? Bool ?? false) || (server["generationComplete"] as? Bool ?? false)`.
 
-### 6.7. Обработка фреймов сервисом
+### 6.7. Обработка фреймов сервисом (`LiveTranscriptAccumulator`)
 
-- `isSetupComplete` → `setupCompleted = true`, конец обработки.
+Текст накапливает `LiveTranscriptAccumulator` (отдельный файл, порт вин-версии):
+интерим **заменяет** открытый сегмент (`feedInterim`), дельта **дополняет** его
+(`feedDelta`, старый протокол), `feedFinal` — финал сегмента; `startSegment()` /
+`endSegment()` коммитят сегменты по границам голосовой активности; `current()` /
+`finalText()` = закоммиченные сегменты + открытый, через пробел. Без аккумулятора
+каждый новый сегмент перезаписывал бы транскрипт — начало диктовки терялось
+(наблюдено вживую 2026-10-27, см. тесты `LiveTranscriptAccumulatorTests`).
+
+- `isSetupComplete` → `setupCompleted = true`; `lastInterimAt = now` (завести таймер тишины: при чистой тишине интеримов не будет вовсе, а adaptive finish обязан сработать).
 - `errorMessage` → лог; `RealtimeTranscriptionError.serverError(code: "live", message:)`; если ожидание идёт — resume failure, иначе сохранить в `terminalError`.
-- `transcript` непустой → дописать в `transcript`, snapshot → `onPartialUpdate` (main queue).
-- `isComplete` → snapshot `transcript`, trim:
-  - пустой → resume failure `RealtimeTranscriptionError.closedBeforeFinal`;
-  - непустой → resume success с текстом.
+- Активность/интерим/дельта (в любом сочетании, под одним `stateQueue.sync`): `lastInterimAt = now`; START → `startSegment()`; END → `endSegment()`; interim → `feedInterim`; дельта → `feedDelta`; snapshot `accumulator.current()` → `onPartialUpdate` (main queue).
+- `isComplete` → resume success с `accumulator.finalText()` — **пустой финал это нормальное завершение** («ничего не сказано»), а не ошибка: лишний батч-запрос по тихому WAV не нужен.
 
 ### 6.8. Ошибка соединения до `setupComplete`
 
@@ -643,6 +698,19 @@ return RealtimeTranscriptionError.serverError(
 )
 ```
 Любая ошибка `receive()` до рукопожатия (URLError или POSIX) оборачивается в это сообщение; после `setupComplete` ошибка пробрасывается как есть. Если ожидание не начато — ошибка сохраняется в `terminalError` (и будет выброшена при `commitAndAwaitFinal`).
+
+### 6.9. Adaptive finish (`commitAndAwaitFinal()`)
+
+Модели `gemini-*-transcribe-live` **не присылают гарантированный turnComplete**:
+чистая тишина не открывает VAD-оборот вообще, а после конца аудио сервер
+досаливает хвост до ~3.2 с (проверено вживую 2026-10-26). Поэтому финал ждётся
+адаптивно (порт вин-версии `FinishAsync`), а не «до первого кадра»:
+
+- Константы: `finishMinWait = 0.8` с (минимум после `audioStreamEnd`), `finishSettle = 1.0` с (тишина в interim), `finishTimeout = 6.0` с (абсолютный потолок), `finishPollInterval = 0.08` с.
+- `commitAndAwaitFinal()` отправляет `audioStreamEnd`, сохраняет continuation, ставит `streamEndedAt = now` и запускает поллинг `scheduleAdaptiveFinishCheck()` на `stateQueue` (не отдельный поток).
+- Условие завершения: `sinceStop >= minWait && now - lastInterimAt >= settle`, либо `sinceStop >= timeout`. Финал = `accumulator.finalText()` — **пустая строка на чистой тишине**, resume success. Именно это чинит вечный спиннер на пустом аудио.
+- `turnComplete`/`generationComplete`, ошибка соединения и `cancel()` резюмят continuation раньше поллинга — поллинг видит `finalContinuation == nil` и больше ничего не делает (повторный resume невозможен: continuation изымается под локом).
+- Таймаут-срабатывание логируется: «live finish timed out after 6s; returning N transcript characters».
 
 ---
 
@@ -710,15 +778,25 @@ private func startRealtimeStreamingIfEnabled() {
 private static func resolveRawTranscript(
     realtimeService: (any RealtimeTranscriptBackend)?,
     fileService: TranscriptionService,
-    fileURL: URL
+    fileURL: URL,
+    peakAudioLevel: Float
 ) async throws -> String
 ```
 
 Правила (строгий порядок, чтобы не платить за оба транспорта):
 1. Если realtime-сервис есть: `try Task.checkCancellation()`; `withTaskCancellationHandler { try await realtimeService.commitAndAwaitFinal() } onCancel: { realtimeService.cancel() }`.
    - `CancellationError` → пробросить наверх (вся сессия отменяется).
-   - **Любая другая ошибка** (serverError, closedBeforeFinal, notConnected) → фоллбек: `try await fileService.transcribe(fileURL: fileURL)` (батч по файлу WAV).
+   - **Любая другая ошибка** (serverError, notConnected) → фоллбек: `try await fileService.transcribe(fileURL: fileURL)` (батч по файлу WAV).
+   - Успех с непустым текстом → вернуть текст.
+   - Успех с **пустым** текстом: если пик уровня микрофона за сессию
+     `peakAudioLevel < silencePeakLevelThreshold (0.03)` — вернуть `""` (чистая
+     тишина: «Nothing to transcribe» без запросов); иначе — батч по WAV: Live-сессия
+     могла не состояться, а речь осталась в файле (паритет вин-версии «Live wins,
+     else WAV»; пик уровня копится в `AppState.sessionPeakAudioLevel` из
+     подписки на `audioRecorder.$audioLevel`).
 2. Если realtime-сервиса нет → сразу `fileService.transcribe(fileURL:)`.
+
+Батч-фоллбек идёт через retry-политику §3.3 (3 попытки, transient-only).
 
 Плюс санитарные проверки AppState вокруг: перед коммитом `activeRealtime = realtimeService; realtimeService = nil; audioRecorder.onPCM16Samples = nil`; после завершения задачи — `defer { activeRealtime?.cancel() }`.
 
@@ -742,6 +820,10 @@ private static func resolveRawTranscript(
 - [ ] Парсинг Interactions: сначала error-конверты ДВУХ форм (`{"error":{...}}` и `[{...}]`), затем `status == "completed"`, затем join `steps[type == nil || "model_output"].content[].text`, пусто → ошибка.
 - [ ] OpenAI Realtime: URL `ws(s)://host[/v1]/realtime?intent=transcription` (не дублировать `/v1`); `session.update` с `audio/pcm rate=24000`, `turn_detection: null`; `input_audio_buffer.append` (base64) и `.commit`; дельты/комплиты склеиваются в `finalText`, финал = commit отправлен + `partialText` пуст + `completed` после коммита; `error` → terminal; закрытие `.normalClosure`; сервер закрылся после completed → финал всё равно возвращается.
 - [ ] Gemini Live: `wss://generativelanguage.googleapis.com/ws/...BidiGenerateContent`; не-Google хост → дефолтный URL; `x-goog-api-key`; setup с `models/`-префиксом, `responseModalities: ["TEXT"]`, `inputAudioTranscription.mode = "SMART"`, опциональным `custom_vocabulary`; `realtimeInput.audio` с `audio/pcm;rate={sampleRate}` (24000 из `AudioRecorder.realtimeSampleRate`); конец — `audioStreamEnd: true`; закрытие `.goingAway`.
-- [ ] Парсинг Live-фреймов: `error` → ошибка; `setupComplete` → флаг; `serverContent.inputTranscription.text` либо `modelTurn.parts[].text`; `turnComplete || generationComplete` → финал (пустой → `closedBeforeFinal`).
+- [ ] Парсинг Live-фреймов: `error` → ошибка; `setupComplete` → флаг + арминг таймера тишины; `voiceActivity` → границы сегментов; `serverContent.inputTranscription.text` либо `modelTurn.parts[].text` (дельта) и `interimInputTranscription.text` (замена сегмента, пустой отбрасывается); `turnComplete || generationComplete` → финал — пустой = успех `""`.
+- [ ] `LiveTranscriptAccumulator`: interim заменяет, дельта дополняет, START/END коммят сегменты, пустые не коммятся, `finalText()` включает открытый хвост.
+- [ ] Adaptive finish: minWait 0.8 с / settle 1.0 с / потолок 6.0 с / поллинг 0.08 с; тишина → resume success с `""`; поллинг идёт на `stateQueue` и бездействует после чужого resume.
 - [ ] Ошибка соединения до `setupComplete` → сообщение «Could not connect to Gemini live transcription. Check the transcription API key.»
 - [ ] Роутинг: `gemini-*-transcribe-live` → Live; батчевый Gemini в `transcriptionModel` → realtime отключён; иначе OpenAI Realtime; ошибка старта → без realtime; ошибка коммита (кроме отмены) → батч по файлу; realtime берёт `realtime_streaming_model`, отдельные transcription key/URL с фоллбеком на LLM key/URL.
+- [ ] Пустой Live-результат: пик уровня < 0.03 → `""` без запросов; иначе батч по WAV.
+- [ ] Retry-политика батча: 3 попытки; transient = emptyTranscript/timeout/pollFailed/transcriptionFailed/uploadFailed/submissionFailed/URLError/HTTP ≥ 500; 429 и прочие 4xx, invalidBaseURL, audioPreparationFailed, отмена — без ретрая.

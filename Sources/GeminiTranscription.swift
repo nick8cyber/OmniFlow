@@ -140,7 +140,7 @@ enum GeminiTranscription {
             .joined()
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if transcript.isEmpty {
-            throw TranscriptionError.transcriptionFailed("Gemini returned an empty transcript.")
+            throw TranscriptionError.emptyTranscript
         }
         return transcript
     }

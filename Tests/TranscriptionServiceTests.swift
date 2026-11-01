@@ -7,9 +7,11 @@ enum TranscriptionServiceTests {
     static func run() {
         runAndWait {
             await testBlankKeyIsReportedAsInvalidWithoutNetwork()
+            await testRetryLoopRepeatsTransientFailuresOnSameProvider()
         }
         testValidateOutcomeMapsHTTPStatuses()
         testUnreachableMessageDistinguishesTimeout()
+        testRetryPolicyClassifiesErrors()
     }
 
     // MARK: - 1
@@ -71,5 +73,79 @@ enum TranscriptionServiceTests {
             semaphore.signal()
         }
         semaphore.wait()
+    }
+}
+
+// MARK: - Retry policy (Windows parity)
+
+extension TranscriptionServiceTests {
+    private static func testRetryPolicyClassifiesErrors() {
+        expect(TranscriptionService.isRetryableTranscriptionError(TranscriptionError.emptyTranscript),
+               "empty output is transient and retryable")
+        expect(TranscriptionService.isRetryableTranscriptionError(TranscriptionError.transcriptionTimedOut(20)),
+               "timeouts are retryable")
+        expect(TranscriptionService.isRetryableTranscriptionError(TranscriptionError.pollFailed("bad json")),
+               "malformed responses are retryable")
+        expect(TranscriptionService.isRetryableTranscriptionError(TranscriptionError.uploadFailed("dropped")),
+               "upload transport failures are retryable")
+        expect(TranscriptionService.isRetryableTranscriptionError(TranscriptionError.httpStatus(503, "server error")),
+               "5xx is retryable")
+        expect(TranscriptionService.isRetryableTranscriptionError(URLError(.networkConnectionLost)),
+               "raw network errors are retryable")
+
+        expect(!TranscriptionService.isRetryableTranscriptionError(TranscriptionError.httpStatus(429, "rate limit")),
+               "429 fails fast — the fallback chain owns rate limits")
+        expect(!TranscriptionService.isRetryableTranscriptionError(TranscriptionError.httpStatus(401, "bad key")),
+               "4xx client errors fail fast")
+        expect(!TranscriptionService.isRetryableTranscriptionError(TranscriptionError.invalidBaseURL("bad")),
+               "malformed URLs are never retried")
+        expect(!TranscriptionService.isRetryableTranscriptionError(TranscriptionError.audioPreparationFailed("missing")),
+               "local audio failures are never retried")
+        expect(!TranscriptionService.isRetryableTranscriptionError(CancellationError()),
+               "cancellations are never retried")
+    }
+
+    private static func testRetryLoopRepeatsTransientFailuresOnSameProvider() async {
+        var calls = 0
+        let text = try? await TranscriptionService.transcribeWithRetries {
+            calls += 1
+            if calls < 3 {
+                throw TranscriptionError.httpStatus(503, "Provider error")
+            }
+            return "готово"
+        }
+        expectEqual(calls, 3, "transient failures repeat on the same provider")
+        expectEqual(text, "готово", "the retry that succeeds is returned")
+
+        calls = 0
+        do {
+            _ = try await TranscriptionService.transcribeWithRetries {
+                calls += 1
+                throw TranscriptionError.httpStatus(401, "Invalid API key")
+            }
+            expect(false, "a deterministic failure must throw")
+        } catch {
+            expectEqual(calls, 1, "4xx fails fast without burning quota")
+        }
+
+        calls = 0
+        do {
+            _ = try await TranscriptionService.transcribeWithRetries {
+                calls += 1
+                return ""
+            }
+            expect(false, "exhausted empty output must throw")
+        } catch {
+            expectEqual(calls, TranscriptionService.transcriptionAttempts,
+                        "empty output repeats before throwing emptyTranscript")
+        }
+
+        calls = 0
+        let ok = try? await TranscriptionService.transcribeWithRetries {
+            calls += 1
+            return "ok"
+        }
+        expectEqual(calls, 1, "a first-try success does not retry")
+        expectEqual(ok, "ok", "a first-try success is returned as-is")
     }
 }

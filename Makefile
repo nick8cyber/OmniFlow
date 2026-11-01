@@ -21,6 +21,7 @@ TEST_PRODUCTION_SOURCES = \
 	Sources/LLMAPITransport.swift \
 	Sources/LLMCooldownManager.swift \
 	Sources/LiveAudioLevelNormalizer.swift \
+	Sources/LiveTranscriptAccumulator.swift \
 	Sources/ModelConfiguration.swift \
 	Sources/PostProcessingService.swift \
 	Sources/SemanticVersion.swift \

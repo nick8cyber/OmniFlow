@@ -173,8 +173,21 @@ private let pcm16TargetFormat: AVAudioFormat = AVAudioFormat(
 - В обработчике:
   1. `guard _recording` — если запись уже закончилась, ничего.
   2. `guard !isSessionInterrupted` — при прерывании watchdog «подвешен», лог `"watchdog suspended while capture session is interrupted"`, отказа НЕТ.
-  3. Если `_bufferCount == baselineCount` — `.noAudioBuffersReceived` через `reportRecordingFailure` (лог `"watchdog: no new buffers after 2.0s — giving up"`).
+  3. Если `_bufferCount == baselineCount`:
+     - **Re-arm (один раз за сессию)**: если `!rearmed && count == 0` и
+       `rearmCapture()` удалась — инфолог `"watchdog: no buffers, re-armed capture once"`,
+       обработчик завершается, отказ НЕ ставится. Основание: первая capture-сессия
+       после долгого простоя устройства может открыться без ошибок и не дать ни
+       одного буфера; одна тихая перекоммутация будит устройство (паритет
+       вин-версии, fffbd85). Безопасно только при `count == 0` — re-open
+       пересоздаёт выходной файл, а записанных данных ещё нет. Служебные поля:
+       `rearmed` (сброс в `startRecording`), `lastDeviceUID` (запоминается от
+       `startRecording(deviceUID:)`).
+     - Иначе — `.noAudioBuffersReceived` через `reportRecordingFailure` (лог `"watchdog: no new buffers after 2.0s — giving up"`).
   4. Иначе — инфолог `"watchdog: N new buffers after 2.0s — healthy"`.
+- `rearmCapture()` (только на `sessionQueue`): `teardownSessionLocked()` внутри
+  `makeSession(deviceUID: lastDeviceUID, outputURL: tempFileURL)` + `startBufferWatchdog()`
+  заново; false — если `tempFileURL` нет или сессия не собралась (тогда обычный отказ).
 - `cancelWatchdog()` — из `stopRecording`, `cancelRecording`, `reportRecordingFailure`, `handleSessionInterrupted`.
 
 ## 5. Готовность записи (`onRecordingReady`)

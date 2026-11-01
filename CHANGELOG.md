@@ -13,6 +13,22 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.4.0] - 2026-11-01
+
+### Added
+
+- Windows-parity dictation overlay card: gradient card with an animated 5-bar equalizer, a live two-line interim transcript (newest words visible, tail-fitted), a REC badge and a "→ App" paste-destination pill; errors render the whole card red. The card sits top-center under the menu bar instead of the old notch wings/pill.
+- "Paste Last Recording": when transcription fails, the recording is kept and a menu-bar item re-transcribes and pastes it; the marker clears on success so a stale recording cannot be pasted twice by accident.
+- Transcription retry policy (Windows parity): three attempts per provider for transient failures only — empty output, timeouts, malformed responses, transport errors, HTTP 5xx. Rate limits (429) and other 4xx fail fast into the fallback chain.
+- Microphone watchdog re-arm: the first capture session after a long device idle may open without delivering buffers; one silent re-open wakes the device before the recording is failed.
+
+### Fixed
+
+- Dictation with empty audio no longer hangs the overlay spinner forever: `gemini-*-transcribe-live` never sends a guaranteed turnComplete (pure silence never opens a VAD turn), so the final wait is now adaptive (interim quiet 1.0 s, min 0.8 s after stream end, hard cap 6 s) and empty results finish as "Nothing to transcribe".
+- Live protocol now speaks the transcribe-live dialect: interim text arrives in `interimInputTranscription` and REPLACES the current voice-activity segment — a `LiveTranscriptAccumulator` commits segments on ACTIVITY_START/END boundaries so pauses no longer lose the beginning of the dictation.
+- An empty live result with audible audio now falls back to file transcription; digital silence ends immediately without provider calls.
+- Equalizer animation no longer fights the main runloop: display-link driven rendering with SwiftUI-smoothed level attack/decay.
+
 ## [1.2.1] - 2026-08-11
 
 ### Improved

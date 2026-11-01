@@ -223,8 +223,8 @@ codesign --force --options runtime --sign "$(CODESIGN_IDENTITY)" \
 | `CFBundleName` | `OmniFlow` |
 | `CFBundleDisplayName` | `OmniFlow` |
 | `CFBundleIdentifier` | `com.nick8cyber.omniflow` |
-| `CFBundleVersion` | `0.3.0` |
-| `CFBundleShortVersionString` | `0.3.0` |
+| `CFBundleVersion` | `0.4.0` |
+| `CFBundleShortVersionString` | `0.4.0` |
 | `CFBundlePackageType` | `APPL` |
 | `CFBundleExecutable` | `OmniFlow` |
 | `CFBundleIconFile` | `AppIcon` |
@@ -244,7 +244,7 @@ codesign --force --options runtime --sign "$(CODESIGN_IDENTITY)" \
   **отдельный ключ `OmniFlowBuildTag`** (см. спеку 31, §3): `CFBundleName ==
   "OmniFlow Dev"` — признак dev-канала для `AppBuild.isDevBundle` (видимость
   Debug-вкладки и dev-иконки в меню-баре).
-- Версия `0.3.0` — базовая на момент референса; релизный CI поднимает её сам.
+- Версия `0.4.0` — базовая на момент референса; релизный CI поднимает её сам.
 
 ---
 

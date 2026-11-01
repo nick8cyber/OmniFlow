@@ -133,6 +133,25 @@ private var resolvedTranscriptionAPIKey: String {
 - `deleteAudioFile(_ name:)`: `removeItem`, ошибки глушатся.
 - Источник WAV — temp-файл `AudioRecorder` (`stopRecording` completion; см. `20-audio.md`).
 
+### 2.5.1 Последняя упавшая запись (`last_failed_audio_file`) — «Paste Last Recording»
+
+Паритет вин-версии (save-on-failure, c2520d4): неудавшаяся диктовка не теряется.
+
+- `AppState.lastFailedAudioFileName` — `@Published`, UserDefaults ключ
+  `"last_failed_audio_file"` (String). Записывается в
+  `finishTranscriptionWithError` при непустом `savedAudioFile.fileName`.
+- `retryLastRecording()` (меню, см. `30-ui.md` §3): guard `!isRecording && !isTranscribing`;
+  файл обязан существовать в `audioStorageDirectory()` (иначе маркер сбрасывается);
+  на время ретрая `isTranscribing = true` (меню задизейблено, хоткеи ждут);
+  статус `"Retrying last recording..."`.
+- Успех: маркер **сбрасывается** (несвежую запись нельзя вставить дважды случайно),
+  `lastTranscript = text`, `writeTranscriptToPasteboard` + `pasteAtCursor()`,
+  статус `"Pasted at cursor!"`.
+- Пустой текст → статус `"Retry produced no text"` (маркер остаётся).
+- `CancellationError` → тихий сброс статуса; прочая ошибка → тост `showError`.
+- Ретрай идёт через `TranscriptionService.transcribe` — с полной retry-политикой
+  (3 попытки, transient-only; см. `10-transcription.md` §3.3).
+
 ### 2.6 `PipelineHistoryItem` (DTO, Codable)
 
 Поля (и их дефолты в init): `intent: PipelineHistoryItemIntent = .dictation`, `selectedText: String?`, `capturedSelection: String?`, `id: UUID = UUID()`, `timestamp: Date`, `rawTranscript: String`, `postProcessedTranscript: String`, `postProcessingPrompt: String?`, `systemPrompt: String? = nil`, `contextSummary: String`, `contextSystemPrompt: String? = nil`, `contextPrompt: String? = nil`, `contextScreenshotDataURL: String?`, `contextScreenshotStatus: String`, `postProcessingStatus: String`, `debugStatus: String`, `customVocabulary: String`, `audioFileName: String? = nil`, `contextAppName: String? = nil`, `contextBundleIdentifier: String? = nil`, `contextWindowTitle: String? = nil`.
