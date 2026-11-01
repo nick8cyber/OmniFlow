@@ -1857,17 +1857,25 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 }
                 let trimmed = liveText.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty {
+                    os_log("live transcript won: %{public}d chars", log: Self.appLog, type: .info,
+                           Int32(trimmed.count))
                     return trimmed
                 }
                 // Live produced nothing. Digital silence ends here ("Nothing to
                 // transcribe"); audible audio still gets the WAV transcribed —
                 // the Live session may have failed while the speech is in the file.
                 if peakAudioLevel < Self.silencePeakLevelThreshold {
+                    os_log("live empty + silence (peak %.3f): nothing to transcribe",
+                           log: Self.appLog, type: .info, peakAudioLevel)
                     return ""
                 }
+                os_log("live empty but audible (peak %.3f): falling back to file transcription",
+                       log: Self.appLog, type: .info, peakAudioLevel)
             } catch let error as CancellationError {
                 throw error
             } catch {
+                os_log("live commit failed, falling back to file transcription: %{public}@",
+                       log: Self.appLog, type: .info, String(describing: error))
                 return try await fileService.transcribe(fileURL: fileURL)
             }
         }

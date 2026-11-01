@@ -160,6 +160,10 @@ final class GeminiLiveTranscriptionService: RealtimeTranscriptBackend {
                 os_log(.info, log: Self.liveLog,
                        "live finish timed out after %.0fs; returning %{public}d transcript characters",
                        Self.finishTimeout, Int32(self.accumulator.finalText().count))
+            } else {
+                os_log(.info, log: Self.liveLog,
+                       "live finish settled: %{public}d transcript characters",
+                       Int32(self.accumulator.finalText().count))
             }
             pending.resume(returning: self.accumulator.finalText())
         }
@@ -227,6 +231,16 @@ final class GeminiLiveTranscriptionService: RealtimeTranscriptBackend {
 
     private func handleFrame(_ text: String) {
         let frame = GeminiLiveTranscription.parseServerFrame(text)
+        // Wire diagnostics: frame shape only, never the transcript itself.
+        os_log(.info, log: Self.liveLog,
+               "live frame: setup=%{public}d interim=%{public}d final=%{public}d start=%{public}d end=%{public}d complete=%{public}d err=%{public}d",
+               frame.isSetupComplete ? 1 : 0,
+               Int32(frame.interimTranscript?.count ?? -1),
+               Int32(frame.transcript?.count ?? -1),
+               frame.activityStartsSegment ? 1 : 0,
+               frame.activityEndsSegment ? 1 : 0,
+               frame.isComplete ? 1 : 0,
+               frame.errorMessage != nil ? 1 : 0)
         if frame.isSetupComplete {
             let buffered: [Data] = stateQueue.sync {
                 setupCompleted = true
@@ -318,6 +332,9 @@ final class GeminiLiveTranscriptionService: RealtimeTranscriptBackend {
         var failure: Error?
         stateQueue.sync {
             guard !closed else { return }
+            os_log(.error, log: Self.liveLog,
+                   "live receive failed (setup=%{public}d): %{private}@",
+                   setupCompleted ? 1 : 0, error.localizedDescription)
             let described: Error
             if setupCompleted {
                 described = error

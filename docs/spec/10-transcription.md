@@ -257,7 +257,7 @@ enum TranscriptionError: LocalizedError {
 }
 ```
 
-`.httpStatus` бросается вместо `.submissionFailed` из `processBatchResponse` —
+`.httpStatus` бросается вместо `.submissionFailed` из `processBatchResponse` и из `transcribeWithGemini` (обе ветки обязаны нести статус — иначе 429/4xx ретраятся как «transient» и жгут поминутный rate-limit),
 код статуса нужен для retry-классификации (§3.3). `.emptyTranscript` бросает
 батч Gemini (`transcript(fromResponse:)`) при пустом тексте и сам retry-цикл
 при исчерпании пустых ответов.

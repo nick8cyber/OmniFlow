@@ -417,7 +417,10 @@ class TranscriptionService {
             os_log(.error, log: transcriptionLog,
                    "gemini transcription request failed: HTTP %{public}d body %{private}@",
                    httpResponse.statusCode, bodyString)
-            throw TranscriptionError.submissionFailed(
+            // .httpStatus (not .submissionFailed): the retry policy must see the
+            // status — 429/4xx fail fast instead of burning three quota requests.
+            throw TranscriptionError.httpStatus(
+                httpResponse.statusCode,
                 GeminiTranscription.failureMessage(
                     fromResponse: data,
                     fallback: Self.friendlyHTTPMessage(status: httpResponse.statusCode,
