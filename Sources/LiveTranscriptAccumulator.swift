@@ -15,12 +15,9 @@ final class LiveTranscriptAccumulator {
         currentSegment = text
     }
 
-    /// Delta text from the older protocol (`inputTranscription` chunks append).
-    func feedDelta(_ text: String) {
-        currentSegment += text
-    }
-
-    /// Server's final text for the open segment, when it emits one.
+    /// Server's final/refined text for the open segment (full replacement, not
+    /// a delta — the Windows build's FeedFinal; appending it would duplicate
+    /// the interim it refines).
     func feedFinal(_ text: String) {
         currentSegment = text
     }

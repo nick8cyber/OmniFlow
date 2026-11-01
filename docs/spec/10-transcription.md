@@ -617,6 +617,12 @@ static func setupMessage(model: String, customVocabulary: String) throws -> Stri
 { "realtimeInput": { "audioStreamEnd": true } }
 ```
 
+**Буфер до setupComplete**: сервер отбрасывает `realtimeInput`, отправленные во
+время рукопожатия. Поэтому `appendPCM16` до `setupComplete` кладёт чанки в
+`pendingChunks` (drop-oldest, лимит 200 ≈ 10 с; паритет вин-версии), а кадр
+`setupComplete` дренирует буфер и отправляет всё в порядке захвата — иначе на
+медленном setup терялись первые слова диктовки.
+
 ### 6.5. Сервис: конфигурация и жизненный цикл
 
 ```swift
@@ -667,23 +673,26 @@ struct ServerFrame {
 3. `root["setupComplete"]` присутствует (любое значение) → `isSetupComplete = true`.
 4. `root["voiceActivity"]` — объект: `type == "ACTIVITY_START"` → `activityStartsSegment`; `"ACTIVITY_END"` → `activityEndsSegment`. Модели семейства `gemini-*-transcribe-live` шлют границы сегментов голосовой активностью, а не turnComplete.
 5. `root["serverContent"]` — объект:
-   - `inputTranscription.text` (String) → `transcript`; **иначе** `modelTurn.parts` — массив объектов → join их непустых `text`; пустой join → `transcript = nil`.
-   - `interimInputTranscription.text` непустой String → `interimTranscript`. Пустой интерим отбрасывается (не подаётся как замена). Транскрайб-live модели шлют interim в этом поле; текст **заменяет** открытый сегмент, а не дополняет его.
+   - `inputTranscription.text` (String) → `transcript` — **финальный/уточнённый текст того же сегмента: ЗАМЕНА, не дельта** (вин-паритет `FeedFinal`; дельта-дополнение даёт «почти-дубль» интерима, см. §6.7). `modelTurn` игнорируется полностью (это вывод модели, не транскрипция пользователя).
+   - `interimInputTranscription.text` непустой String → `interimTranscript`. Пустой интерим подаётся как есть — это валидный **сброс** открытого сегмента (вин-паритет; отбрасывание оставляло бы устаревший текст, который закоммитился бы на ACTIVITY_END).
+   - Оба поля могут приходить в одном фрейме и в одной сессии — обрабатываются независимо, порядок применения: interim, затем final (final выигрывает в кадре).
    - `isComplete = (server["turnComplete"] as? Bool ?? false) || (server["generationComplete"] as? Bool ?? false)`.
 
 ### 6.7. Обработка фреймов сервисом (`LiveTranscriptAccumulator`)
 
 Текст накапливает `LiveTranscriptAccumulator` (отдельный файл, порт вин-версии):
-интерим **заменяет** открытый сегмент (`feedInterim`), дельта **дополняет** его
-(`feedDelta`, старый протокол), `feedFinal` — финал сегмента; `startSegment()` /
+**оба** текстовых поля **заменяют** открытый сегмент — `feedInterim` (interim)
+и `feedFinal` (inputTranscription — уточнённый финал того же сегмента; это НЕ
+дельта: дополнение дублировало бы интерим «почти тем же текстом», т.к. сервер
+шлифует сегмент и досылает финал с мелкими правками); `startSegment()` /
 `endSegment()` коммитят сегменты по границам голосовой активности; `current()` /
 `finalText()` = закоммиченные сегменты + открытый, через пробел. Без аккумулятора
 каждый новый сегмент перезаписывал бы транскрипт — начало диктовки терялось
 (наблюдено вживую 2026-10-27, см. тесты `LiveTranscriptAccumulatorTests`).
 
-- `isSetupComplete` → `setupCompleted = true`; `lastInterimAt = now` (завести таймер тишины: при чистой тишине интеримов не будет вовсе, а adaptive finish обязан сработать).
+- `isSetupComplete` → `setupCompleted = true`; `lastInterimAt = now` (завести таймер тишины: при чистой тишине интеримов не будет вовсе, а adaptive finish обязан сработать); дренирование `pendingChunks` в сокет в порядке захвата (см. §6.4).
 - `errorMessage` → лог; `RealtimeTranscriptionError.serverError(code: "live", message:)`; если ожидание идёт — resume failure, иначе сохранить в `terminalError`.
-- Активность/интерим/дельта (в любом сочетании, под одним `stateQueue.sync`): `lastInterimAt = now`; START → `startSegment()`; END → `endSegment()`; interim → `feedInterim`; дельта → `feedDelta`; snapshot `accumulator.current()` → `onPartialUpdate` (main queue).
+- Активность/текст (в любом сочетании, под одним `stateQueue.sync`): `lastInterimAt = now`; START → `startSegment()`; END → `endSegment()`; interim → `feedInterim`; inputTranscription → `feedFinal` (замена); snapshot `accumulator.current()` → `onPartialUpdate` (main queue).
 - `isComplete` → resume success с `accumulator.finalText()` — **пустой финал это нормальное завершение** («ничего не сказано»), а не ошибка: лишний батч-запрос по тихому WAV не нужен.
 
 ### 6.8. Ошибка соединения до `setupComplete`
@@ -821,8 +830,9 @@ private static func resolveRawTranscript(
 - [ ] OpenAI Realtime: URL `ws(s)://host[/v1]/realtime?intent=transcription` (не дублировать `/v1`); `session.update` с `audio/pcm rate=24000`, `turn_detection: null`; `input_audio_buffer.append` (base64) и `.commit`; дельты/комплиты склеиваются в `finalText`, финал = commit отправлен + `partialText` пуст + `completed` после коммита; `error` → terminal; закрытие `.normalClosure`; сервер закрылся после completed → финал всё равно возвращается.
 - [ ] Gemini Live: `wss://generativelanguage.googleapis.com/ws/...BidiGenerateContent`; не-Google хост → дефолтный URL; `x-goog-api-key`; setup с `models/`-префиксом, `responseModalities: ["TEXT"]`, `inputAudioTranscription.mode = "SMART"`, опциональным `custom_vocabulary`; `realtimeInput.audio` с `audio/pcm;rate={sampleRate}` (24000 из `AudioRecorder.realtimeSampleRate`); конец — `audioStreamEnd: true`; закрытие `.goingAway`.
 - [ ] Парсинг Live-фреймов: `error` → ошибка; `setupComplete` → флаг + арминг таймера тишины; `voiceActivity` → границы сегментов; `serverContent.inputTranscription.text` либо `modelTurn.parts[].text` (дельта) и `interimInputTranscription.text` (замена сегмента, пустой отбрасывается); `turnComplete || generationComplete` → финал — пустой = успех `""`.
-- [ ] `LiveTranscriptAccumulator`: interim заменяет, дельта дополняет, START/END коммят сегменты, пустые не коммятся, `finalText()` включает открытый хвост.
+- [ ] `LiveTranscriptAccumulator`: interim и inputTranscription оба ЗАМЕНЯЮТ открытый сегмент (финал-уточнение не дублирует интерим), START/END коммят сегменты, пустые не коммятся, `finalText()` включает открытый хвост; `modelTurn` не потребляется.
 - [ ] Adaptive finish: minWait 0.8 с / settle 1.0 с / потолок 6.0 с / поллинг 0.08 с; тишина → resume success с `""`; поллинг идёт на `stateQueue` и бездействует после чужого resume.
+- [ ] Буфер аудио до setupComplete: pendingChunks, drop-oldest 200, flush по порядку захвата при handshake.
 - [ ] Ошибка соединения до `setupComplete` → сообщение «Could not connect to Gemini live transcription. Check the transcription API key.»
 - [ ] Роутинг: `gemini-*-transcribe-live` → Live; батчевый Gemini в `transcriptionModel` → realtime отключён; иначе OpenAI Realtime; ошибка старта → без realtime; ошибка коммита (кроме отмены) → батч по файлу; realtime берёт `realtime_streaming_model`, отдельные transcription key/URL с фоллбеком на LLM key/URL.
 - [ ] Пустой Live-результат: пик уровня < 0.03 → `""` без запросов; иначе батч по WAV.

@@ -24,6 +24,9 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 
 ### Fixed
 
+- Live transcript no longer duplicates itself ("раз раз проверка" appearing twice, slightly reworded): the server refines each segment by re-sending its final text in `inputTranscription` — both text fields now REPLACE the open segment exactly like the Windows build, instead of appending the refinement onto the interim it refines. `modelTurn` frames are ignored entirely.
+- Audio captured before the Live handshake completes is now buffered (drop-oldest, ~10 s cap) and flushed in capture order — the server discards chunks sent during setup, which could drop the first words of a dictation.
+- An empty interim frame now resets the open segment (Windows parity) instead of being dropped, so a server-side reset cannot leave stale text behind.
 - Dictation with empty audio no longer hangs the overlay spinner forever: `gemini-*-transcribe-live` never sends a guaranteed turnComplete (pure silence never opens a VAD turn), so the final wait is now adaptive (interim quiet 1.0 s, min 0.8 s after stream end, hard cap 6 s) and empty results finish as "Nothing to transcribe".
 - Live protocol now speaks the transcribe-live dialect: interim text arrives in `interimInputTranscription` and REPLACES the current voice-activity segment — a `LiveTranscriptAccumulator` commits segments on ACTIVITY_START/END boundaries so pauses no longer lose the beginning of the dictation.
 - An empty live result with audible audio now falls back to file transcription; digital silence ends immediately without provider calls.

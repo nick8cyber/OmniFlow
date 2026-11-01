@@ -341,7 +341,7 @@ context-модели; `ModelConfiguration` (пересечение со спек
    мусор (`"not json"`) → ничего не выставлен, не падает.
 6. **testInterimAndActivityFramesAreClassified** — протокол transcribe-live:
    `serverContent.interimInputTranscription.text` → `interimTranscript` (не
-   дельта, не complete); пустой интерим отбрасывается (`nil`);
+   дельта, не complete); пустой интерим подаётся как `""` (сброс сегмента, вин-паритет);
    `voiceActivity.type == "ACTIVITY_START"` → `activityStartsSegment` (не end);
    `"ACTIVITY_END"` → `activityEndsSegment` (не start).
 

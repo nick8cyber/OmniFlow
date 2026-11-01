@@ -7,7 +7,7 @@ enum LiveTranscriptAccumulatorTests {
         testStartSegmentClosesAnyOpenSegment()
         testEmptySegmentsAreNotCommitted()
         testFinalIncludesOpenSegmentTail()
-        testDeltaAppendsWithinSegment()
+        testFinalReplacesRefinedInterimWithoutDuplicate()
     }
 
     // Regression tests for the lost-beginning bug: transcribe-live's interim
@@ -62,11 +62,14 @@ enum LiveTranscriptAccumulatorTests {
                                 "open segment still counts in the final text")
     }
 
-    private static func testDeltaAppendsWithinSegment() {
+    private static func testFinalReplacesRefinedInterimWithoutDuplicate() {
+        // The real-world duplication bug: the server refines the open segment
+        // by sending its final text after the interim — both REPLACE, so the
+        // refined final must not stack onto the interim it refines.
         let acc = LiveTranscriptAccumulator()
-        acc.feedDelta("пер")
-        acc.feedDelta("вый текст")
-        TestSupport.expectEqual(acc.current(), "первый текст",
-                                "delta chunks append (old protocol)")
+        acc.feedInterim("раз раз проверка связи")
+        acc.feedFinal("раз, раз, проверка связи")
+        TestSupport.expectEqual(acc.current(), "раз, раз, проверка связи",
+                                "refined final replaces the interim, no near-duplicate")
     }
 }

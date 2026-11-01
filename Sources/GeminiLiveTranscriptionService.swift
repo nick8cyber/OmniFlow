@@ -25,6 +25,12 @@ final class GeminiLiveTranscriptionService: RealtimeTranscriptBackend {
     private var terminalError: Error?
     private var lastInterimAt = CFAbsoluteTimeGetCurrent()
     private var streamEndedAt = CFAbsoluteTimeGetCurrent()
+    // Audio captured before setupComplete: the server discards realtimeInput
+    // sent during the handshake, so chunks are buffered (drop-oldest) and
+    // flushed in capture order after the handshake (Windows parity) — without
+    // this the first words of a dictation are dropped on a slow setup.
+    private var pendingChunks: [Data] = []
+    private static let pendingChunkLimit = 200
 
     private static let liveLog = OSLog(subsystem: "com.nick8cyber.omniflow",
                                        category: "GeminiLiveTranscription")
@@ -73,19 +79,16 @@ final class GeminiLiveTranscriptionService: RealtimeTranscriptBackend {
 
     func appendPCM16(_ data: Data) {
         guard !data.isEmpty else { return }
-        let (task, isClosed) = stateQueue.sync { () -> (URLSessionWebSocketTask?, Bool) in
-            (socket, closed)
-        }
-        guard let task = task, !isClosed else { return }
-        guard let message = try? GeminiLiveTranscription.audioMessage(pcm16: data,
-                                                                      sampleRate: config.sampleRate) else {
-            return
-        }
-        task.send(.string(message)) { error in
-            if let error = error {
-                os_log(.info, log: Self.liveLog,
-                       "failed to send audio chunk: %{private}@", error.localizedDescription)
+        stateQueue.sync {
+            guard !closed else { return }
+            guard setupCompleted else {
+                if pendingChunks.count >= Self.pendingChunkLimit {
+                    pendingChunks.removeFirst()
+                }
+                pendingChunks.append(data)
+                return
             }
+            sendAudioChunk(socket, data)
         }
     }
 
@@ -162,6 +165,23 @@ final class GeminiLiveTranscriptionService: RealtimeTranscriptBackend {
         }
     }
 
+    /// Sends one audio chunk (call on stateQueue): wraps into a message and
+    /// fires the async socket send; failures are logged and ignored — the
+    /// file-transcription fallback owns recovery.
+    private func sendAudioChunk(_ task: URLSessionWebSocketTask?, _ data: Data) {
+        guard let task else { return }
+        guard let message = try? GeminiLiveTranscription.audioMessage(pcm16: data,
+                                                                      sampleRate: config.sampleRate) else {
+            return
+        }
+        task.send(.string(message)) { error in
+            if let error = error {
+                os_log(.info, log: Self.liveLog,
+                       "failed to send audio chunk: %{private}@", error.localizedDescription)
+            }
+        }
+    }
+
     func cancel() {
         let (task, pendingContinuation, receive) = stateQueue.sync { () -> (URLSessionWebSocketTask?,
                                                                              CheckedContinuation<String, Error>?,
@@ -208,11 +228,20 @@ final class GeminiLiveTranscriptionService: RealtimeTranscriptBackend {
     private func handleFrame(_ text: String) {
         let frame = GeminiLiveTranscription.parseServerFrame(text)
         if frame.isSetupComplete {
-            stateQueue.sync {
+            let buffered: [Data] = stateQueue.sync {
                 setupCompleted = true
                 // Arm the settle timer from setup: with pure silence no interim
                 // ever arrives, and the adaptive finish must still fire.
                 lastInterimAt = CFAbsoluteTimeGetCurrent()
+                let buffered = pendingChunks
+                pendingChunks = []
+                return buffered
+            }
+            let task: URLSessionWebSocketTask? = stateQueue.sync { closed ? nil : socket }
+            if let task {
+                for chunk in buffered {
+                    sendAudioChunk(task, chunk)
+                }
             }
             return
         }
@@ -247,11 +276,14 @@ final class GeminiLiveTranscriptionService: RealtimeTranscriptBackend {
                 if frame.activityEndsSegment {
                     accumulator.endSegment()
                 }
+                // Windows parity: BOTH fields replace the open segment —
+                // inputTranscription is the refined final of the same segment,
+                // appending it would duplicate the interim it refines.
                 if let interim = frame.interimTranscript {
                     accumulator.feedInterim(interim)
                 }
-                if let delta = frame.transcript {
-                    accumulator.feedDelta(delta)
+                if let final = frame.transcript {
+                    accumulator.feedFinal(final)
                 }
                 return accumulator.current()
             }

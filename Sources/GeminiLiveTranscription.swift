@@ -113,22 +113,16 @@ enum GeminiLiveTranscription {
             frame.activityEndsSegment = kind == "ACTIVITY_END"
         }
         guard let server = root["serverContent"] as? [String: Any] else { return frame }
-        var transcriptText: String?
+        // Windows parity: only the two transcription fields are consumed —
+        // modelTurn (model's own output) is ignored entirely.
         if let inputTranscription = server["inputTranscription"] as? [String: Any],
            let text = inputTranscription["text"] as? String {
-            transcriptText = text
-        } else if let modelTurn = server["modelTurn"] as? [String: Any],
-                  let parts = modelTurn["parts"] as? [[String: Any]] {
-            let joined = parts
-                .compactMap { $0["text"] as? String }
-                .filter { !$0.isEmpty }
-                .joined()
-            transcriptText = joined.isEmpty ? nil : joined
+            frame.transcript = text
         }
-        frame.transcript = transcriptText
         if let interim = server["interimInputTranscription"] as? [String: Any],
-           let text = interim["text"] as? String, !text.isEmpty {
+           let text = interim["text"] as? String {
             // transcribe-live models: interim text REPLACES the current segment.
+            // An empty string is a valid segment reset — fed as-is (Windows parity).
             frame.interimTranscript = text
         }
         frame.isComplete = (server["turnComplete"] as? Bool ?? false)

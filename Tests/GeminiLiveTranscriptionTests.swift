@@ -193,8 +193,8 @@ enum GeminiLiveTranscriptionTests {
 
         let emptyInterim = GeminiLiveTranscription.parseServerFrame(
             #"{"serverContent": {"interimInputTranscription": {"text": ""}}}"#)
-        expectEqual(emptyInterim.interimTranscript, String?.none,
-                    "an empty interim is dropped, not fed as replacement")
+        expectEqual(emptyInterim.interimTranscript, "",
+                    "an empty interim resets the segment (Windows parity)")
 
         let start = GeminiLiveTranscription.parseServerFrame(
             #"{"voiceActivity": {"type": "ACTIVITY_START"}}"#)
