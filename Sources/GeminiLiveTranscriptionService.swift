@@ -309,16 +309,17 @@ final class GeminiLiveTranscriptionService: RealtimeTranscriptBackend {
             var pendingContinuation: CheckedContinuation<String, Error>?
             var outcome: Result<String, Error>?
             stateQueue.sync {
-                // turnComplete is the server's final word even when nothing was
-                // recognized: an empty transcript ends the session normally
-                // instead of triggering a redundant batch round-trip.
-                if let stored = finalContinuation {
+                // turnComplete closes the SERVER'S TURN, not the session: this
+                // model emits it after each speech turn's tail refinement,
+                // mid-dictation while the user is still talking. Only resume
+                // when the end was already requested (streamEnded); never set
+                // closed from here — that killed the socket mid-dictation and
+                // turned every long hold into notConnected → batch → 429.
+                if streamEnded, let stored = finalContinuation {
                     finalContinuation = nil
                     closed = true
                     pendingContinuation = stored
                     outcome = .success(accumulator.finalText())
-                } else {
-                    closed = true
                 }
             }
             if let pendingContinuation = pendingContinuation, let outcome = outcome {
