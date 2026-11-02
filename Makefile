@@ -25,6 +25,7 @@ TEST_PRODUCTION_SOURCES = \
 	Sources/ModelConfiguration.swift \
 	Sources/PostProcessingService.swift \
 	Sources/SemanticVersion.swift \
+	Sources/SpeechHeuristics.swift \
 	Sources/TranscriptTextCore.swift \
 	Sources/TranscriptionService.swift \
 	Sources/ShortcutCore/DictationShortcutSessionController.swift \

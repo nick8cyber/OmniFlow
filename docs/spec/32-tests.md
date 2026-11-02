@@ -347,6 +347,17 @@ context-модели; `ModelConfiguration` (пересечение со спек
 
 ---
 
+## 8a. SpeechHeuristicsTests (спека 10 §7.3, гейт пустой записи)
+
+1. **testSilenceYieldsNoSpeech** — ровный шум пола ≈ 0 секунд речи.
+2. **testSustainedSpeechAboveFloorIsCounted** — 40% выборки выше пола → 0.8 с
+   речи из 2.0 с; пол трекает тихую часть.
+3. **testBriefCoughIsNotSpeech** — одиночный громкий транзиент (кашель/клик) —
+   не устоявшаяся речь.
+4. **testDeadCalmRoomHissIsNotSpeech** — абсолютный минимум 0.003 не даёт шипению
+   мёртвой комнаты считать себя речью.
+5. **testEmptyInputsAreSafe** — пустые сэмплы/нулевая длительность → 0.
+
 ## 8b. LiveTranscriptAccumulatorTests (спека 10 §6.7)
 
 Порт вин-`LiveTranscriptAccumulatorTests` — регрессия «потерянного начала»:

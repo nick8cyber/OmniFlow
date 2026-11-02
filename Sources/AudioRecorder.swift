@@ -119,6 +119,13 @@ final class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputS
     /// Written on sessionQueue inside `finishAudioFileLocked`, read after the
     /// stop completion — the queue hop gives happens-before.
     private(set) var lastRecordingDurationSeconds: Double = 0
+    /// Speech diagnostics of the last finished recording (see SpeechHeuristics):
+    /// seconds above the adaptive noise-floor threshold, and the floor itself.
+    /// Powers the "decided not to speak" gate in AppState.
+    private(set) var lastRecordingSpeechSeconds: Double = 0
+    private(set) var lastRecordingNoiseFloorRMS: Float = 0
+    private let rmsSamplesLock = OSAllocatedUnfairLock<[Float]>(initialState: [])
+    private static let rmsSampleCap = 4000
     private var loggedCaptureFormat = false
     private var isSessionInterrupted = false
     private var readyFired = false
@@ -605,7 +612,16 @@ final class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputS
         activeAudioFile = nil
         activeAudioFormat = nil
         let frames = recordedFrameCount
-        lastRecordingDurationSeconds = Double(frames) / recordingTargetFormat.sampleRate
+        let totalSeconds = Double(frames) / recordingTargetFormat.sampleRate
+        lastRecordingDurationSeconds = totalSeconds
+        let rmsSamples = rmsSamplesLock.withLock { samples -> [Float] in
+            let out = samples
+            samples.removeAll()
+            return out
+        }
+        let speech = SpeechHeuristics.analyze(rmsSamples: rmsSamples, totalDuration: totalSeconds)
+        lastRecordingSpeechSeconds = speech.speechSeconds
+        lastRecordingNoiseFloorRMS = speech.noiseFloorRMS
         let writeError = fileWriteErrorLock.withLock { self.fileWriteError }
         let keptURL: URL?
         if !discard, frames > 0, writeError == nil, let url = tempFileURL {
@@ -735,6 +751,12 @@ final class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputS
             return 0
         }
         let rms = rmsLevel(for: pcmBuffer)
+        rmsSamplesLock.withLock { samples in
+            if samples.count >= Self.rmsSampleCap {
+                samples.removeFirst(samples.count - Self.rmsSampleCap + 1)
+            }
+            samples.append(rms)
+        }
         let level = liveLevelNormalizerLock.withLock { $0.normalizedLevel(forRMS: rms) }
         DispatchQueue.main.async {
             self.audioLevel = level

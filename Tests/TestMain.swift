@@ -11,6 +11,7 @@ struct OmniFlowTests {
         PostProcessingFallbackTests.run()
         ShortcutCoreTests.run()
         SemanticVersionTests.run()
+        SpeechHeuristicsTests.run()
         LLMCooldownManagerTests.run()
         TranscriptionServiceTests.run()
         TranscriptTextCoreTests.run()

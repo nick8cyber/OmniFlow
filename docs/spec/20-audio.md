@@ -190,7 +190,20 @@ private let pcm16TargetFormat: AVAudioFormat = AVAudioFormat(
   заново; false — если `tempFileURL` нет или сессия не собралась (тогда обычный отказ).
 - `cancelWatchdog()` — из `stopRecording`, `cancelRecording`, `reportRecordingFailure`, `handleSessionInterrupted`.
 
-## 4b. Длительность записи (`lastRecordingDurationSeconds`)
+## 4b. Длительность записи и профиль речи (`lastRecording*`)
+
+- `lastRecordingDurationSeconds` — `finishAudioFileLocked` (sessionQueue) перед
+  сбросом счётчика сохраняет `recordedFrameCount / recordingTargetFormat.sampleRate`
+  (кадры файла 16 кГц mono int16). Пишется и на stop, и на cancel; читается
+  AppState после completion стопа (queue-hop даёт happens-before). Потребитель —
+  гейт пустой записи в транскрипции (спека 10 §7.3, шаг 0).
+- `lastRecordingSpeechSeconds` / `lastRecordingNoiseFloorRMS` — там же: RMS
+  каждого буфера копится в `rmsSamples` (кап 4000, `rmsSamplesLock`, пишется в
+  `updateAudioLevel` на sampleBufferQueue), на финише `SpeechHeuristics.analyze`
+  считает 15-й перцентиль (шумовой пол) и суммарные секунды выше порога
+  `max(пол × 3, 0.003)`. Сэмплы очищаются на каждом финише.
+
+## 4c. (резерв)
 
 `finishAudioFileLocked` (sessionQueue) перед сбросом счётчика сохраняет
 `lastRecordingDurationSeconds = recordedFrameCount / recordingTargetFormat.sampleRate`

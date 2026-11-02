@@ -1445,16 +1445,19 @@ final class AppState: ObservableObject, @unchecked Sendable {
             guard let self else { return }
             defer { activeRealtime?.cancel() }
             do {
-                // An accidental tap must never reach a provider: a recording
-                // that is too short or digitally silent finishes locally as
-                // "Nothing to transcribe" instead of a 20-40s provider error.
+                // An accidental tap or an abandoned hold must never reach a
+                // provider: too short, digitally silent, or lacking sustained
+                // speech above the session's own noise floor finishes locally
+                // as "Nothing to transcribe" instead of a 20-40s provider error.
                 let duration = self.audioRecorder.lastRecordingDurationSeconds
                 let peak = self.sessionPeakAudioLevel
+                let speechSeconds = self.audioRecorder.lastRecordingSpeechSeconds
                 let rawTranscript: String
                 if duration < Self.minimumDictationDuration
+                    || speechSeconds < Self.minimumSpeechSeconds
                     || peak < Self.silencePeakLevelThreshold {
-                    os_log("recording effectively empty (%.2fs, peak %.3f): skipping transcription",
-                           log: Self.appLog, type: .info, duration, peak)
+                    os_log("recording effectively empty (%.2fs, speech %.2fs, peak %.3f): skipping transcription",
+                           log: Self.appLog, type: .info, duration, speechSeconds, peak)
                     rawTranscript = ""
                 } else {
                     let fileService = try self.makeTranscriptionService()
@@ -1901,6 +1904,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// A recorded capture shorter than this is an accidental hotkey tap, not
     /// speech (one spoken word needs roughly a second with press+release).
     private static let minimumDictationDuration: TimeInterval = 0.5
+    /// Below this many seconds of audio standing above the session's own noise
+    /// floor there was no speech — a held-but-abandoned recording (thinking,
+    /// breathing, a cough) skips the provider entirely.
+    private static let minimumSpeechSeconds: Double = 0.3
 
     private static func statusMessage(for outcome: TranscriptProcessingOutcome,
                                       parsedTranscript: TranscriptCommandParsing,
