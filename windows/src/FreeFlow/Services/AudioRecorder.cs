@@ -76,6 +76,14 @@ public sealed class AudioRecorder : IDisposable
     private WaveInEvent? _waveIn;
     private readonly string? _preferredDeviceName;
     private readonly MemoryStream _rawStream = new();
+    private readonly List<double> _rmsSamples = new();
+    private const int RmsSampleCap = 4000;
+
+    /// <summary>Speech diagnostics of the last finished recording (see
+    /// SpeechHeuristics) — powers the abandoned-hold gate in the pipeline.</summary>
+    public double LastRecordingDurationSeconds { get; private set; }
+    public double LastRecordingSpeechSeconds { get; private set; }
+    public double LastRecordingNoiseFloorRms { get; private set; }
     private readonly object _lock = new();
     private readonly System.Timers.Timer _watchdog;
     private readonly LiveAudioLevelNormalizer _level = new();
@@ -123,6 +131,7 @@ public sealed class AudioRecorder : IDisposable
         lock (_lock)
         {
             _rawStream.SetLength(0);
+            _rmsSamples.Clear();
             _stopRequested = false;
             _firstAudioFired = false;
         }
@@ -210,6 +219,7 @@ public sealed class AudioRecorder : IDisposable
 
         long length;
         lock (_lock) length = _rawStream.Length;
+        ComputeSpeechMetrics(length);
         if (length == 0) return null;
 
         var wavPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.wav");
@@ -245,6 +255,25 @@ public sealed class AudioRecorder : IDisposable
     }
 
     /// <summary>Stops capture and discards the audio (cancel path).</summary>
+    /// <summary>Duration + speech analysis of the finished capture (session
+    /// metrics for the empty-recording gate; bytes → seconds via the capture
+    /// format's average byte rate).</summary>
+    private void ComputeSpeechMetrics(long rawLength)
+    {
+        double duration;
+        List<double> samples;
+        lock (_lock)
+        {
+            duration = rawLength / (double)Math.Max(1, _captureFormat.AverageBytesPerSecond);
+            samples = new List<double>(_rmsSamples);
+            _rmsSamples.Clear();
+        }
+        var analysis = SpeechHeuristics.Analyze(samples, duration);
+        LastRecordingDurationSeconds = duration;
+        LastRecordingSpeechSeconds = analysis.SpeechSeconds;
+        LastRecordingNoiseFloorRms = analysis.NoiseFloorRms;
+    }
+
     public void Cancel()
     {
         if (!IsRecording) return;
@@ -308,6 +337,8 @@ public sealed class AudioRecorder : IDisposable
             if (_stopRequested) return; // ignore stragglers after Stop/Cancel begins
             _rawStream.Write(e.Buffer, 0, e.BytesRecorded);
             rms = ComputeRms(e.Buffer, e.BytesRecorded);
+            if (_rmsSamples.Count >= RmsSampleCap) _rmsSamples.RemoveAt(0);
+            _rmsSamples.Add(rms);
             chunk = new byte[e.BytesRecorded];
             Array.Copy(e.Buffer, chunk, e.BytesRecorded);
         }

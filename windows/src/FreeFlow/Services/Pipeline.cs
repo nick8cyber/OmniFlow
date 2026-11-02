@@ -383,6 +383,19 @@ public sealed class Pipeline
     public static string LastFailedRecordingPath => Path.Combine(
         SettingsStore.DirectoryPath, "last-failed.wav");
 
+    /// <summary>True when the capture holds no speech: shorter than 0.5 s
+    /// (accidental hotkey tap) or fewer than 0.3 s standing above its own
+    /// noise floor (thought about it and decided not to speak). Such a capture
+    /// must never reach a provider — the old path waited 20-40 s for an empty
+    /// answer or a rate-limit error the user could not cancel.</summary>
+    private bool IsEffectivelyEmptyRecording()
+    {
+        var recorder = _recorder;
+        if (recorder == null) return false;
+        return recorder.LastRecordingDurationSeconds < 0.5
+            || recorder.LastRecordingSpeechSeconds < 0.3;
+    }
+
     private async Task RunProcessingAsync(
         string wavPath, bool editIntent, AppSettings settings, CancellationToken ct,
         Task<string> contextTask, LiveTranscriptionService? live)
@@ -415,6 +428,13 @@ public sealed class Pipeline
                     string.IsNullOrWhiteSpace(settings.RealtimeStreamingModel)
                         ? "gemini-3.5-transcribe-live"
                         : settings.RealtimeStreamingModel);
+            }
+            else if (IsEffectivelyEmptyRecording())
+            {
+                // Accidental tap or abandoned hold: finish locally, no provider
+                // round-trip (macOS parity — SpeechHeuristics gate). The empty
+                // outcome lands in the standard "Nothing to transcribe" branch.
+                transcription = new TranscriptionOutcome("", "skipped", "");
             }
             else
             {

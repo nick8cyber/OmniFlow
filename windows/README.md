@@ -81,6 +81,11 @@ flushed in order). On release: `End()` → `RunProcessingAsync`:
 Live transcript (if the session produced text) → else WAV transcription →
 command mode / voice macros / cleanup policy → paste.
 
+- **Empty-capture gate (macOS parity)**: a recording with no speech never
+  reaches a provider — shorter than 0.5 s (accidental hotkey tap) or fewer than
+  0.3 s above its own noise floor (`SpeechHeuristics`, 15th-percentile RMS × 3)
+  finishes locally as "Nothing to transcribe" in under a second.
+
 - **Cleanup policy**: Google transcripts (live or record-then-transcribe) paste as-is;
   Groq transcripts are cleaned by the LLM when the Behavior checkbox is on. Context is awaited
   only by the cleanup and command-mode branches — never on the paste path for Google.
