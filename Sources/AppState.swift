@@ -1445,11 +1445,24 @@ final class AppState: ObservableObject, @unchecked Sendable {
             guard let self else { return }
             defer { activeRealtime?.cancel() }
             do {
-                let fileService = try self.makeTranscriptionService()
-                let rawTranscript = try await Self.resolveRawTranscript(realtimeService: activeRealtime,
+                // An accidental tap must never reach a provider: a recording
+                // that is too short or digitally silent finishes locally as
+                // "Nothing to transcribe" instead of a 20-40s provider error.
+                let duration = self.audioRecorder.lastRecordingDurationSeconds
+                let peak = self.sessionPeakAudioLevel
+                let rawTranscript: String
+                if duration < Self.minimumDictationDuration
+                    || peak < Self.silencePeakLevelThreshold {
+                    os_log("recording effectively empty (%.2fs, peak %.3f): skipping transcription",
+                           log: Self.appLog, type: .info, duration, peak)
+                    rawTranscript = ""
+                } else {
+                    let fileService = try self.makeTranscriptionService()
+                    rawTranscript = try await Self.resolveRawTranscript(realtimeService: activeRealtime,
                                                                         fileService: fileService,
                                                                         fileURL: transcriptionFileURL,
-                                                                        peakAudioLevel: self.sessionPeakAudioLevel)
+                                                                        peakAudioLevel: peak)
+                }
                 let parsedTranscript = TranscriptCommandParser.parse(
                     from: rawTranscript,
                     pressEnterCommandEnabled: self.isPressEnterVoiceCommandEnabled)
@@ -1885,6 +1898,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// Below this normalized peak the microphone delivered (near) silence, and
     /// a WAV round-trip would only burn quota on a guaranteed-empty answer.
     private static let silencePeakLevelThreshold: Float = 0.03
+    /// A recorded capture shorter than this is an accidental hotkey tap, not
+    /// speech (one spoken word needs roughly a second with press+release).
+    private static let minimumDictationDuration: TimeInterval = 0.5
 
     private static func statusMessage(for outcome: TranscriptProcessingOutcome,
                                       parsedTranscript: TranscriptCommandParsing,

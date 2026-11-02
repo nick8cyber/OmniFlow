@@ -24,6 +24,7 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 
 ### Fixed
 
+- Accidental hotkey taps no longer wait 20-40 s for a provider error: a recording shorter than 0.5 s (or digitally silent) is recognized locally and finishes as "Nothing to transcribe" in under a second, with no transcription request at all.
 - Live transcript no longer duplicates itself ("раз раз проверка" appearing twice, slightly reworded): the server refines each segment by re-sending its final text in `inputTranscription` — both text fields now REPLACE the open segment exactly like the Windows build, instead of appending the refinement onto the interim it refines. `modelTurn` frames are ignored entirely.
 - Audio captured before the Live handshake completes is now buffered (drop-oldest, ~10 s cap) and flushed in capture order — the server discards chunks sent during setup, which could drop the first words of a dictation.
 - An empty interim frame now resets the open segment (Windows parity) instead of being dropped, so a server-side reset cannot leave stale text behind.

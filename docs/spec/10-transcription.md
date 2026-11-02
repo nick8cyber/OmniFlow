@@ -793,6 +793,12 @@ private static func resolveRawTranscript(
 ```
 
 Правила (строгий порядок, чтобы не платить за оба транспорта):
+0. **Гейт пустого тапа (до любых провайдеров)**: если
+   `audioRecorder.lastRecordingDurationSeconds < minimumDictationDuration (0.5 с)`
+   ИЛИ `sessionPeakAudioLevel < silencePeakLevelThreshold (0.03)` — транскрипция
+   не начинается вовсе: `rawTranscript = ""` → штатный путь «Nothing to
+   transcribe». Случайный клик по хоткею завершается за доли секунды без
+   запросов, ошибок и ожидания (лог «recording effectively empty …»).
 1. Если realtime-сервис есть: `try Task.checkCancellation()`; `withTaskCancellationHandler { try await realtimeService.commitAndAwaitFinal() } onCancel: { realtimeService.cancel() }`.
    - `CancellationError` → пробросить наверх (вся сессия отменяется).
    - **Любая другая ошибка** (serverError, notConnected) → фоллбек: `try await fileService.transcribe(fileURL: fileURL)` (батч по файлу WAV).

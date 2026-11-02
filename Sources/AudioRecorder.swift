@@ -115,6 +115,10 @@ final class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputS
     private var activeAudioFile: AVAudioFile?
     private var activeAudioFormat: AVAudioFormat?
     private var recordedFrameCount: AVAudioFramePosition = 0
+    /// Duration of the last finished recording (captured audio seconds).
+    /// Written on sessionQueue inside `finishAudioFileLocked`, read after the
+    /// stop completion — the queue hop gives happens-before.
+    private(set) var lastRecordingDurationSeconds: Double = 0
     private var loggedCaptureFormat = false
     private var isSessionInterrupted = false
     private var readyFired = false
@@ -601,6 +605,7 @@ final class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputS
         activeAudioFile = nil
         activeAudioFormat = nil
         let frames = recordedFrameCount
+        lastRecordingDurationSeconds = Double(frames) / recordingTargetFormat.sampleRate
         let writeError = fileWriteErrorLock.withLock { self.fileWriteError }
         let keptURL: URL?
         if !discard, frames > 0, writeError == nil, let url = tempFileURL {

@@ -190,6 +190,14 @@ private let pcm16TargetFormat: AVAudioFormat = AVAudioFormat(
   заново; false — если `tempFileURL` нет или сессия не собралась (тогда обычный отказ).
 - `cancelWatchdog()` — из `stopRecording`, `cancelRecording`, `reportRecordingFailure`, `handleSessionInterrupted`.
 
+## 4b. Длительность записи (`lastRecordingDurationSeconds`)
+
+`finishAudioFileLocked` (sessionQueue) перед сбросом счётчика сохраняет
+`lastRecordingDurationSeconds = recordedFrameCount / recordingTargetFormat.sampleRate`
+(кадры файла 16 кГц mono int16). Пишется и на stop, и на cancel; читается
+AppState после completion стопа (queue-hop даёт happens-before). Потребитель —
+гейт пустого тапа в транскрипции (спека 10 §7.3, шаг 0).
+
 ## 5. Готовность записи (`onRecordingReady`)
 
 В `captureOutput`, после инкремента `_bufferCount` и подсчёта RMS:
