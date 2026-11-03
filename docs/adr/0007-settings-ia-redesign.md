@@ -14,6 +14,10 @@
 3. Мастер: 14 → 7 шагов (Permissions и Shortcuts собраны по одному экрану,
    Personalize объединяет необязательное).
 4. Удалены мёртвые опция оверлея (ADR-0005) и Pipeline Debug-панель.
+5. 2026-11-04: Windows-настройки приведены к той же IA (AI Provider /
+   Dictation / Processing / Macros / History, freeflow `691d987`) — старая
+   страница Behavior разобрана; различия платформ остались только в движке UI
+   (SwiftUI-кит против WinForms-темы), а не в структуре.
 
 ## Последствия
 
