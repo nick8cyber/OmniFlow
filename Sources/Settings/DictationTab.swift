@@ -144,7 +144,7 @@ struct DictationSettingsView: View {
                     Toggle("", isOn: Binding(
                         get: { appState.isCommandModeEnabled },
                         set: { _ = appState.setCommandModeEnabled($0) }))
-                        .labelsHidden()
+                        .toggleStyle(.switch)
                 }
                 VStack(alignment: .leading, spacing: 8) {
                     Picker("Invocation Style", selection: Binding(
@@ -194,20 +194,20 @@ struct DictationSettingsView: View {
                 FormRow(title: "Mute audio when dictation starts",
                         subtitle: "System audio is restored when the dictation ends") {
                     Toggle("", isOn: $appState.dictationAudioInterruptionEnabled)
-                        .labelsHidden()
+                        .toggleStyle(.switch)
                 }
                 Divider()
                 FormRow(title: "Preserve clipboard after paste") {
                     Toggle("", isOn: $appState.preserveClipboard)
-                        .labelsHidden()
+                        .toggleStyle(.switch)
                 }
                 FormRow(title: "Keep dictations in clipboard history") {
                     Toggle("", isOn: $appState.keepDictationInClipboardHistory)
-                        .labelsHidden()
+                        .toggleStyle(.switch)
                 }
                 FormRow(title: "Say \"press enter\" to submit after paste") {
                     Toggle("", isOn: $appState.isPressEnterVoiceCommandEnabled)
-                        .labelsHidden()
+                        .toggleStyle(.switch)
                 }
             }
         }

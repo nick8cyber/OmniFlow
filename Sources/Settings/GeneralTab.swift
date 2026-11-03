@@ -67,7 +67,7 @@ struct GeneralSettingsView: View {
             VStack(spacing: 10) {
                 FormRow(title: "Launch \(AppName.displayName) at login") {
                     Toggle("", isOn: $appState.launchAtLogin)
-                        .labelsHidden()
+                        .toggleStyle(.switch)
                 }
                 if launchAtLoginNeedsApproval {
                     HStack(spacing: 8) {
@@ -85,7 +85,7 @@ struct GeneralSettingsView: View {
                 }
                 FormRow(title: "Show menu bar icon") {
                     Toggle("", isOn: $showMenuBarIcon)
-                        .labelsHidden()
+                        .toggleStyle(.switch)
                 }
                 if !showMenuBarIcon {
                     Text("Turn it back on in Settings, or relaunch the app to reopen Settings.")
@@ -112,7 +112,7 @@ struct GeneralSettingsView: View {
                     Toggle("", isOn: Binding(
                         get: { updateManager.autoCheckEnabled },
                         set: { updateManager.autoCheckEnabled = $0 }))
-                        .labelsHidden()
+                        .toggleStyle(.switch)
                 }
                 HStack {
                     Button {
@@ -236,7 +236,7 @@ struct GeneralSettingsView: View {
             VStack(spacing: 10) {
                 FormRow(title: "Play alert sounds") {
                     Toggle("", isOn: $appState.alertSoundsEnabled)
-                        .labelsHidden()
+                        .toggleStyle(.switch)
                 }
                 HStack(spacing: 8) {
                     Image(systemName: "speaker.fill")

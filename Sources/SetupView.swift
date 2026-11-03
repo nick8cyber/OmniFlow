@@ -565,7 +565,7 @@ struct SetupView: View {
                                 Toggle("", isOn: Binding(
                                     get: { appState.isCommandModeEnabled },
                                     set: { _ = appState.setCommandModeEnabled($0) }))
-                                    .labelsHidden()
+                                    .toggleStyle(.switch)
                             }
                             Picker("Invocation Style", selection: Binding(
                                 get: { appState.commandModeStyle },
@@ -605,7 +605,7 @@ struct SetupView: View {
                         VStack(spacing: 10) {
                             FormRow(title: "Launch \(AppName.displayName) at login") {
                                 Toggle("", isOn: $appState.launchAtLogin)
-                                    .labelsHidden()
+                                    .toggleStyle(.switch)
                             }
                             Divider()
                             FormRow(title: "Show overlay on") {

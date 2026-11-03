@@ -22,7 +22,7 @@ struct DebugSettingsView: View {
                     VStack(spacing: 10) {
                         FormRow(title: "Show after dictation") {
                             Toggle("", isOn: $appState.debugShowsUpdateReminderAfterDictation)
-                                .labelsHidden()
+                                .toggleStyle(.switch)
                         }
                         HStack {
                             Button("Show Update Overlay Now") {

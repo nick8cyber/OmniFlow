@@ -172,6 +172,7 @@ struct GeminiProviderFields: View {
                               })
             VStack(alignment: .leading, spacing: 4) {
                 Toggle("Stream audio while recording (Gemini Live)", isOn: $appState.realtimeStreamingEnabled)
+                    .toggleStyle(.switch)
                 Text("Streams microphone audio to Gemini Live over a WebSocket while recording, falling back to the batch model when the stream fails.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -362,6 +363,7 @@ struct OpenAIProviderFields: View {
             Divider()
 
             Toggle("Stream audio while recording (realtime)", isOn: $appState.realtimeStreamingEnabled)
+                    .toggleStyle(.switch)
             Text("Streams microphone audio over the provider's /v1/realtime WebSocket while recording, falling back to file transcription when the stream fails.")
                 .font(.caption)
                 .foregroundStyle(.secondary)

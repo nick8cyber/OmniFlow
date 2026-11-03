@@ -35,7 +35,7 @@ private struct CleanupCard: View {
             VStack(spacing: 8) {
                 FormRow(title: "Preserve exact wording") {
                     Toggle("", isOn: $appState.preserveExactWording)
-                        .labelsHidden()
+                        .toggleStyle(.switch)
                 }
                 Text("When enabled, LLM cleanup is skipped and your words are pasted verbatim. Voice macros and Edit Mode still work. Output Language still translates, but literally.")
                     .font(.caption)
@@ -53,7 +53,7 @@ private struct InstructionGuardCard: View {
             VStack(spacing: 8) {
                 FormRow(title: "Prevent dictated prompts from being executed") {
                     Toggle("", isOn: $appState.instructionExecutionGuardEnabled)
-                        .labelsHidden()
+                        .toggleStyle(.switch)
                 }
                 Text("If post-processing looks like it answered your dictation instead of cleaning it, OmniFlow retries and falls back to the literal transcript.")
                     .font(.caption)
