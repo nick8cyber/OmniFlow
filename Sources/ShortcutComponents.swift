@@ -47,16 +47,9 @@ struct DictationShortcutEditor: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             if appState.usesFnShortcut {
-                fnAdvice
+                FnAdviceBanner()
             }
         }
-    }
-
-    private var fnAdvice: some View {
-        Label("If pressing your shortcut opens the emoji picker instead, set the Globe/Fn key to \"Do Nothing\" in System Settings > Keyboard > Keyboard Shortcuts > Fn Keys.",
-              systemImage: "exclamationmark.triangle.fill")
-            .font(.caption)
-            .foregroundColor(.orange)
     }
 
     private func select(_ binding: ShortcutBinding, for role: ShortcutRole) {

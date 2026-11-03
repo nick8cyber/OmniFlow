@@ -345,7 +345,7 @@ struct BrandHeader: View {
             if showsContributors, !githubCache.recentContributors.isEmpty {
                 HStack(spacing: -6) {
                     ForEach(githubCache.recentContributors.prefix(15)) { contributor in
-                        GitHubAvatarView(avatarURL: contributor.avatarThumbnailUrl,
+                        GitHubAvatarView(avatarURL: contributor.avatarUrl + "?s=44",
                                          profileURL: contributor.htmlUrl)
                     }
                     Spacer()

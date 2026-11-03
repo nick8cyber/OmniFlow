@@ -56,10 +56,6 @@ struct GitHubContributor: Decodable, Identifiable {
         case avatarUrl = "avatar_url"
         case htmlUrl = "html_url"
     }
-
-    var avatarThumbnailUrl: String {
-        "\(avatarUrl)?s=44"
-    }
 }
 
 @MainActor
@@ -186,130 +182,6 @@ struct GitHubAvatarView: View {
     }
 }
 
-// MARK: - Overlay style components (shared with Settings)
-
-struct OverlayStyleOptionRow: View {
-    let isMinimalist: Bool
-    @Binding var selection: Bool
-
-    private var isSelected: Bool {
-        selection == isMinimalist
-    }
-
-    var body: some View {
-        Button {
-            selection = isMinimalist
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 20))
-                    .foregroundColor(isSelected ? .blue : .secondary)
-                OverlayStylePreview(isMinimalist: isMinimalist)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(isMinimalist ? "Minimalist menu-bar overlay" : "Drop-down pill")
-                        .font(.headline)
-                    Text(isMinimalist
-                        ? "Two slim wings flank the camera notch and stay inside the menu bar. Never covers app tabs or toolbars."
-                        : "Single pill hangs below the menu bar during recording. Larger and more visible, but covers a thin strip of whatever app is active.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-            }
-            .padding(12)
-            .background(RoundedRectangle(cornerRadius: 8)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5)))
-            .overlay(RoundedRectangle(cornerRadius: 8)
-                .stroke(isSelected ? Color.blue : Color.clear, lineWidth: 2))
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-struct OverlayStylePreview: View {
-    let isMinimalist: Bool
-
-    var body: some View {
-        ZStack(alignment: .top) {
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color.secondary.opacity(0.18))
-                .frame(width: 110, height: 56)
-            VStack(spacing: 3) {
-                ZStack(alignment: .center) {
-                    Rectangle()
-                        .fill(Color.primary.opacity(0.10))
-                        .frame(height: 8)
-                    HStack(spacing: 0) {
-                        if isMinimalist {
-                            MinimalistWingShape()
-                                .fill(Color.black)
-                                .frame(width: 16, height: 8)
-                        }
-                        Rectangle()
-                            .fill(Color.black)
-                            .frame(width: 26, height: 8)
-                        if isMinimalist {
-                            MinimalistWingShape(mirrored: true)
-                                .fill(Color.black)
-                                .frame(width: 16, height: 8)
-                        }
-                    }
-                }
-                .frame(height: 8)
-                HStack(spacing: 4) {
-                    ForEach(0..<5, id: \.self) { _ in
-                        RoundedRectangle(cornerRadius: 1)
-                            .fill(Color.primary.opacity(0.14))
-                            .frame(width: 14, height: 6)
-                    }
-                }
-                Spacer()
-            }
-            .padding(.top, 0)
-            if !isMinimalist {
-                UnevenCapsule()
-                    .fill(Color.black)
-                    .frame(width: 36, height: 20)
-                    .offset(y: 8)
-            }
-        }
-        .frame(width: 110, height: 56)
-        .clipped()
-    }
-}
-
-private struct MinimalistWingShape: Shape {
-    var mirrored = false
-
-    func path(in rect: CGRect) -> Path {
-        let radius: CGFloat = 3
-        var path = Path()
-        if mirrored {
-            path.move(to: CGPoint(x: rect.minX, y: rect.minY))
-            path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
-            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - radius))
-            path.addQuadCurve(to: CGPoint(x: rect.maxX - radius, y: rect.maxY),
-                              control: CGPoint(x: rect.maxX, y: rect.maxY))
-            path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
-        } else {
-            path.move(to: CGPoint(x: rect.maxX, y: rect.minY))
-            path.addLine(to: CGPoint(x: rect.minX, y: rect.minY))
-            path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - radius))
-            path.addQuadCurve(to: CGPoint(x: rect.minX + radius, y: rect.maxY),
-                              control: CGPoint(x: rect.minX, y: rect.maxY))
-            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
-        }
-        path.closeSubpath()
-        return path
-    }
-}
-
-private struct UnevenCapsule: Shape {
-    func path(in rect: CGRect) -> Path {
-        Path(roundedRect: rect, cornerRadius: 5, style: .continuous)
-    }
-}
-
 // MARK: - Setup helpers
 
 struct HowToRow: View {
@@ -319,7 +191,7 @@ struct HowToRow: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: icon)
-                .foregroundColor(.blue)
+                .foregroundColor(.accentColor)
                 .frame(width: 24)
             Text(text)
                 .font(.callout)
@@ -337,7 +209,7 @@ struct InlineTranscribingDots: View {
         HStack(spacing: 8) {
             ForEach(0..<3, id: \.self) { index in
                 Circle()
-                    .fill(Color.blue.opacity(index == activeDot ? 1.0 : 0.3))
+                    .fill(Color.accentColor.opacity(index == activeDot ? 1.0 : 0.3))
                     .frame(width: 12, height: 12)
                     .scaleEffect(index == activeDot ? 1.3 : 1.0)
                     .animation(.easeInOut(duration: 0.3), value: activeDot)
@@ -353,9 +225,7 @@ struct InlineTranscribingDots: View {
 
 struct SetupView: View {
     private enum SetupStep: Int, CaseIterable {
-        case welcome, apiKey, micPermission, accessibility, screenRecording
-        case holdShortcut, toggleShortcut, copyAgainShortcut, commandMode
-        case vocabulary, launchAtLogin, overlayStyle, testTranscription, ready
+        case welcome, provider, permissions, shortcuts, personalize, testTranscription, ready
     }
 
     private enum TestPhase {
@@ -376,19 +246,9 @@ struct SetupView: View {
     @State private var providerUnreachable = false
     @State private var micPermissionGranted = false
     @State private var accessibilityGranted = AXIsProcessTrusted()
-    @State private var capturingHold = false
-    @State private var capturingToggle = false
-    @State private var capturingCopyAgain = false
-    @State private var holdValidationMessage: String?
-    @State private var toggleValidationMessage: String?
-    @State private var copyAgainValidationMessage: String?
-    @State private var commandModeEnabled = false
-    @State private var commandModeStyleChoice: CommandModeStyle = .automatic
-    @State private var commandModeManualModifierChoice: CommandModeManualModifier = .command
+    @State private var screenRecordingGranted = false
     @State private var customVocabularyDraft = ""
-    @State private var accessibilityPollTimer = Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()
-    @State private var screenPollTimer = Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()
-    @State private var micPollTimer = Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()
+    @State private var permissionsPollTimer = Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()
 
     @State private var testPhase: TestPhase = .idle
     @State private var testTranscript = ""
@@ -397,9 +257,8 @@ struct SetupView: View {
     @State private var testRecorder: AudioRecorder?
     @State private var testLevelCancellable: AnyCancellable?
     @State private var testMicPulsing = false
-    @State private var screenRecordingGranted = false
 
-    @AppStorage("use_compact_overlay") private var useCompactOverlay = true
+    @AppStorage("overlay_display_id") private var overlayDisplayID = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -416,40 +275,21 @@ struct SetupView: View {
         }
         .onAppear(perform: initialize)
         .onDisappear {
-            accessibilityPollTimer.upstream.connect().cancel()
-            screenPollTimer.upstream.connect().cancel()
-            micPollTimer.upstream.connect().cancel()
+            permissionsPollTimer.upstream.connect().cancel()
             appState.resumeHotkeyMonitoringAfterShortcutCapture()
             stopTest()
         }
-        .onChange(of: capturingHold) { capturing in
-            captureStateChanged(capturing || capturingToggle || capturingCopyAgain)
-        }
-        .onChange(of: capturingToggle) { capturing in
-            captureStateChanged(capturing || capturingHold || capturingCopyAgain)
-        }
-        .onChange(of: capturingCopyAgain) { capturing in
-            captureStateChanged(capturing || capturingHold || capturingToggle)
-        }
-        .onReceive(accessibilityPollTimer) { _ in
-            guard currentStep == .accessibility else { return }
+        .onReceive(permissionsPollTimer) { _ in
+            guard currentStep == .permissions else { return }
+            // React to permissions granted later in System Settings: the row
+            // states and the Continue gate must read the same live state.
+            micPermissionGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
             accessibilityGranted = AXIsProcessTrusted()
-        }
-        .onReceive(screenPollTimer) { _ in
-            guard currentStep == .screenRecording else { return }
-            // The card display and the Continue gate must read the same state,
-            // otherwise the UI can show "Granted" while Continue stays disabled.
             let granted = appState.hasScreenCapturePermission()
             screenRecordingGranted = granted
             if appState.hasScreenRecordingPermission != granted {
                 appState.hasScreenRecordingPermission = granted
             }
-        }
-        .onReceive(micPollTimer) { _ in
-            guard currentStep == .micPermission else { return }
-            // React to permission granted later in System Settings, like the
-            // accessibility step does.
-            micPermissionGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
         }
     }
 
@@ -457,7 +297,7 @@ struct SetupView: View {
         HStack(spacing: 8) {
             ForEach(SetupStep.allCases, id: \.rawValue) { step in
                 Circle()
-                    .fill(step == currentStep ? Color.blue : Color.gray.opacity(0.3))
+                    .fill(step == currentStep ? Color.accentColor : Color.gray.opacity(0.3))
                     .frame(width: 8, height: 8)
             }
         }
@@ -470,41 +310,14 @@ struct SetupView: View {
         switch currentStep {
         case .welcome:
             welcomeStep
-        case .apiKey:
-            apiKeyStep
-        case .micPermission:
-            permissionStep(icon: "mic.fill",
-                           title: "Microphone Access",
-                           bodyText: "\(AppName.displayName) needs microphone access to transcribe your speech.")
-        case .accessibility:
-            permissionStep(icon: "hand.raised.fill",
-                           title: "Accessibility Access",
-                           bodyText: "Accessibility lets \(AppName.displayName) paste text at your cursor position.")
-        case .screenRecording:
-            screenRecordingStep
-        case .holdShortcut:
-            shortcutStep(icon: "keyboard.fill", title: "Hold to Talk Shortcut", role: .hold,
-                         extraAdvice: AnyView(fnAdvice))
-        case .toggleShortcut:
-            shortcutStep(icon: "switch.2", title: "Tap to Toggle Shortcut", role: .toggle,
-                         extraAdvice: AnyView(VStack(alignment: .leading, spacing: 6) {
-                             fnAdvice
-                             Text("Activating the toggle shortcut while holding latches dictation into tap mode.")
-                                 .font(.caption)
-                                 .foregroundStyle(.secondary)
-                         }))
-        case .copyAgainShortcut:
-            shortcutStep(icon: "doc.on.clipboard", title: "Paste Again Shortcut", role: .copyAgain,
-                         introText: "Optional. Repeats your last transcript at the cursor without recording again.",
-                         extraAdvice: AnyView(fnAdvice))
-        case .commandMode:
-            commandModeStep
-        case .vocabulary:
-            vocabularyStep
-        case .launchAtLogin:
-            launchAtLoginStep
-        case .overlayStyle:
-            overlayStyleStep
+        case .provider:
+            providerStep
+        case .permissions:
+            permissionsStep
+        case .shortcuts:
+            shortcutsStep
+        case .personalize:
+            personalizeStep
         case .testTranscription:
             testTranscriptionStep
         case .ready:
@@ -515,26 +328,10 @@ struct SetupView: View {
     private func initialize() {
         apiKeyInput = appState.apiKey
         customVocabularyDraft = appState.customVocabulary
-        commandModeEnabled = appState.isCommandModeEnabled
-        commandModeStyleChoice = appState.commandModeStyle
-        commandModeManualModifierChoice = appState.commandModeManualModifier
         micPermissionGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+        accessibilityGranted = AXIsProcessTrusted()
+        screenRecordingGranted = appState.hasScreenCapturePermission()
         Task { await githubCache.fetchIfNeeded() }
-    }
-
-    private func captureStateChanged(_ capturing: Bool) {
-        if capturing {
-            appState.suspendHotkeyMonitoringForShortcutCapture()
-        } else {
-            appState.resumeHotkeyMonitoringAfterShortcutCapture()
-        }
-    }
-
-    private var fnAdvice: some View {
-        Label("If pressing your shortcut opens the emoji picker instead, set the Globe/Fn key to \"Do Nothing\" in System Settings > Keyboard > Keyboard Shortcuts > Fn Keys.",
-              systemImage: "exclamationmark.triangle.fill")
-            .font(.caption)
-            .foregroundColor(.orange)
     }
 
     // welcome
@@ -575,11 +372,8 @@ struct SetupView: View {
                 if !githubCache.recentContributors.isEmpty {
                     HStack(spacing: -6) {
                         ForEach(githubCache.recentContributors.prefix(15)) { contributor in
-                            AsyncImage(url: URL(string: contributor.avatarThumbnailUrl)) { image in
-                                image.resizable().frame(width: 22, height: 22).clipShape(Circle())
-                            } placeholder: {
-                                Circle().fill(Color.secondary.opacity(0.3)).frame(width: 22, height: 22)
-                            }
+                            GitHubAvatarView(avatarURL: contributor.avatarUrl + "?s=44",
+                                             profileURL: contributor.htmlUrl)
                         }
                         Spacer()
                     }
@@ -592,33 +386,37 @@ struct SetupView: View {
         .padding(.top, 24)
     }
 
-    // api key
+    // provider
 
-    private var apiKeyStep: some View {
+    private var providerStep: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Image(systemName: "key.fill")
-                .font(.system(size: 60))
-                .foregroundColor(.blue)
-            Text("API Key")
+            Image(systemName: "cpu")
+                .font(.system(size: 56))
+                .foregroundColor(.accentColor)
+            Text("Choose Provider")
                 .font(.largeTitle.bold())
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Using Groq?")
-                    .font(.headline)
-                Label("Open console.groq.com/keys in your browser.", systemImage: "1.circle")
-                    .font(.caption)
-                Label("Sign in or create a free account.", systemImage: "2.circle")
-                    .font(.caption)
-                Label("Create an API key and paste it below.", systemImage: "3.circle")
-                    .font(.caption)
-            }
-            SecureField("Paste your API key", text: $apiKeyInput)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: NSFont.systemFontSize(for: .small), design: .monospaced))
-                .onChange(of: apiKeyInput) { _ in
-                    keyValidationError = nil
-                    keyValidationDetail = nil
-                    providerUnreachable = false
+            Text("Pick the API family your key belongs to — the fields adapt. Gemini handles transcription and cleanup with one key; OpenAI-compatible providers run a separate cleanup model.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            ProviderCardPair(selection: Binding(
+                get: { appState.aiProvider },
+                set: { appState.setAIProvider($0) }))
+            HStack(spacing: 8) {
+                SecureField(appState.aiProvider == .gemini ? "Paste your Gemini API key" : "Paste your API key",
+                            text: $apiKeyInput)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: NSFont.systemFontSize(for: .small), design: .monospaced))
+                    .onChange(of: apiKeyInput) { _ in
+                        keyValidationError = nil
+                        keyValidationDetail = nil
+                        providerUnreachable = false
+                    }
+                if appState.aiProvider == .gemini {
+                    Text("aistudio.google.com → Get API key")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
+            }
             if let keyValidationError {
                 Text(keyValidationError)
                     .font(.caption)
@@ -647,7 +445,8 @@ struct SetupView: View {
                 }
                 .padding(12)
                 .background(RoundedRectangle(cornerRadius: 8)
-                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5)))
+                    .fill(Color(nsColor: .controlBackgroundColor)))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.08), lineWidth: 1))
             }
             .buttonStyle(.plain)
             Spacer()
@@ -659,271 +458,171 @@ struct SetupView: View {
 
     @State private var showsProviderSheet = false
 
-    // permissions
+    // permissions (was three separate steps)
 
-    private func permissionStep(icon: String, title: String, bodyText: String) -> some View {
+    private var permissionsStep: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Image(systemName: icon)
-                .font(.system(size: 60))
-                .foregroundColor(.blue)
-            Text(title)
+            Image(systemName: "shield")
+                .font(.system(size: 56))
+                .foregroundColor(.accentColor)
+            Text("Permissions")
                 .font(.largeTitle.bold())
-            Text(bodyText)
+            Text("Microphone records you, Accessibility pastes at the cursor, Screen Recording lets Edit Mode read the selected text. Nothing is stored on any server — audio and screenshots go only to the provider you configure.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
-            HStack {
-                Image(systemName: grantedForCurrentStep ? "checkmark.circle.fill" : "circle")
-                    .foregroundColor(grantedForCurrentStep ? .green : .secondary)
-                Text(title)
-                Spacer()
-                if grantedForCurrentStep {
-                    Text("Granted")
-                        .font(.caption)
-                        .foregroundColor(.green)
-                } else {
-                    Button("Grant Access") {
-                        requestPermissionForCurrentStep()
+            VStack(spacing: 0) {
+                permissionRow(icon: "mic.fill",
+                              title: "Microphone",
+                              granted: micPermissionGranted) {
+                    appState.requestMicrophoneAccess { granted in
+                        micPermissionGranted = granted
                     }
                 }
-            }
-            .padding(12)
-            .background(RoundedRectangle(cornerRadius: 8)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5)))
-            Spacer()
-        }
-    }
-
-    private var grantedForCurrentStep: Bool {
-        switch currentStep {
-        case .micPermission: return micPermissionGranted
-        case .accessibility: return accessibilityGranted
-        default: return appState.hasScreenRecordingPermission
-        }
-    }
-
-    private func requestPermissionForCurrentStep() {
-        switch currentStep {
-        case .micPermission:
-            appState.requestMicrophoneAccess { granted in
-                micPermissionGranted = granted
-            }
-        case .accessibility:
-            appState.openAccessibilitySettings()
-        default:
-            break
-        }
-    }
-
-    private var screenRecordingStep: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Image(systemName: "camera.viewfinder")
-                .font(.system(size: 60))
-                .foregroundColor(.blue)
-            Text("Screen Recording")
-                .font(.largeTitle.bold())
-            Text("Edit Mode reads the text you have selected so the model can transform it inside your app.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-            Text("Nothing is stored on any server — the selection is sent only to the model provider you configure.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-            HStack {
-                Image(systemName: screenRecordingGranted ? "checkmark.circle.fill" : "circle")
-                    .foregroundColor(screenRecordingGranted ? .green : .secondary)
-                Text("Screen Recording")
-                Spacer()
-                if screenRecordingGranted {
-                    Text("Granted")
-                        .font(.caption)
-                        .foregroundColor(.green)
-                } else {
-                    Button("Grant Access") {
-                        appState.requestScreenCapturePermission()
-                    }
+                Divider().padding(.horizontal, 12)
+                permissionRow(icon: "hand.raised.fill",
+                              title: "Accessibility",
+                              granted: accessibilityGranted) {
+                    appState.openAccessibilitySettings()
+                }
+                Divider().padding(.horizontal, 12)
+                permissionRow(icon: "camera.viewfinder",
+                              title: "Screen Recording",
+                              granted: screenRecordingGranted) {
+                    appState.requestScreenCapturePermission()
                 }
             }
-            .padding(12)
-            .background(RoundedRectangle(cornerRadius: 8)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5)))
+            .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor)))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.08), lineWidth: 1))
             Spacer()
         }
     }
 
-    // shortcuts
-
-    private func shortcutStep(icon: String, title: String, role: ShortcutRole,
-                              introText: String? = nil, extraAdvice: AnyView? = nil) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
+    private func permissionRow(icon: String, title: String, granted: Bool,
+                               action: @escaping () -> Void) -> some View {
+        HStack(spacing: 10) {
             Image(systemName: icon)
-                .font(.system(size: 48))
-                .foregroundColor(.blue)
+                .foregroundColor(.accentColor)
+                .frame(width: 20)
             Text(title)
-                .font(.largeTitle.bold())
-            if let introText {
-                Text(introText)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-            ShortcutRoleSection(role: role,
-                                selection: selectionForRole(role),
-                                savedBinding: appState.savedCustomShortcut(for: role),
-                                validationMessage: validationForRole(role),
-                                isCapturing: bindingForRole(role),
-                                onSelect: { select($0, for: role) },
-                                onCaptureStateChange: nil)
-            if let extraAdvice {
-                extraAdvice
-            }
             Spacer()
-        }
-    }
-
-    private func selectionForRole(_ role: ShortcutRole) -> ShortcutBinding {
-        switch role {
-        case .hold: return appState.holdShortcut
-        case .toggle: return appState.toggleShortcut
-        case .copyAgain: return appState.copyAgainShortcut
-        }
-    }
-
-    private func validationForRole(_ role: ShortcutRole) -> String? {
-        switch role {
-        case .hold: return holdValidationMessage
-        case .toggle: return toggleValidationMessage
-        case .copyAgain: return copyAgainValidationMessage
-        }
-    }
-
-    private func bindingForRole(_ role: ShortcutRole) -> Binding<Bool> {
-        switch role {
-        case .hold: return $capturingHold
-        case .toggle: return $capturingToggle
-        case .copyAgain: return $capturingCopyAgain
-        }
-    }
-
-    private func select(_ binding: ShortcutBinding, for role: ShortcutRole) {
-        let message = appState.setShortcut(binding, for: role)
-        switch role {
-        case .hold: holdValidationMessage = message
-        case .toggle: toggleValidationMessage = message
-        case .copyAgain: copyAgainValidationMessage = message
-        }
-    }
-
-    // command mode
-
-    private var commandModeStep: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Image(systemName: "pencil")
-                .font(.system(size: 48))
-                .foregroundColor(.blue)
-            Text("Edit Mode")
-                .font(.largeTitle.bold())
-            VStack(alignment: .leading, spacing: 12) {
-                Toggle("Enable Edit Mode", isOn: Binding(
-                    get: { commandModeEnabled },
-                    set: { newValue in
-                        commandModeEnabled = newValue
-                        _ = appState.setCommandModeEnabled(newValue)
-                    }))
-                Text("Transform highlighted text with a spoken instruction instead of dictating over it.")
+            if granted {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(.green)
+                Text("Granted")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Picker("Invocation Style", selection: Binding(
-                    get: { commandModeStyleChoice },
-                    set: { newValue in
-                        commandModeStyleChoice = newValue
-                        _ = appState.setCommandModeStyle(newValue)
-                    })) {
-                    Text("Automatic").tag(CommandModeStyle.automatic)
-                    Text("Manual").tag(CommandModeStyle.manual)
-                }
-                .pickerStyle(.segmented)
-                .disabled(!commandModeEnabled)
-                if commandModeStyleChoice == .manual {
-                    Picker("Extra Modifier", selection: Binding(
-                        get: { commandModeManualModifierChoice },
-                        set: { newValue in
-                            commandModeManualModifierChoice = newValue
-                            _ = appState.setCommandModeManualModifier(newValue)
-                        })) {
-                        Text("Cmd ⌘").tag(CommandModeManualModifier.command)
-                        Text("Ctrl ⌃").tag(CommandModeManualModifier.control)
-                        Text("Option ⌥").tag(CommandModeManualModifier.option)
-                        Text("Shift ⇧").tag(CommandModeManualModifier.shift)
-                    }
-                    .pickerStyle(.segmented)
-                    .disabled(!commandModeEnabled)
-                }
-                if let message = appState.commandModeManualModifierValidationMessage {
-                    Label(message, systemImage: "xmark.circle.fill")
-                        .font(.caption)
-                        .foregroundColor(.red)
-                }
+            } else {
+                Button("Grant Access", action: action)
+                    .controlSize(.small)
             }
-            .padding(12)
-            .background(RoundedRectangle(cornerRadius: 8)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5)))
-            Spacer()
         }
+        .padding(12)
     }
 
-    // vocabulary
+    // shortcuts (was three separate steps)
 
-    private var vocabularyStep: some View {
+    private var shortcutsStep: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Image(systemName: "text.book.closed.fill")
-                .font(.system(size: 48))
-                .foregroundColor(.blue)
-            Text("Custom Vocabulary")
+            Image(systemName: "keyboard.fill")
+                .font(.system(size: 56))
+                .foregroundColor(.accentColor)
+            Text("Shortcuts")
                 .font(.largeTitle.bold())
-            Text("Names, jargon, and spellings the model should prefer.")
+            Text("All three roles on one screen. Hold to record, tap to start and stop, press the toggle shortcut while holding to latch into tap mode.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
-            TextEditor(text: $customVocabularyDraft)
-                .font(.system(size: NSFont.systemFontSize(for: .small), design: .monospaced))
-                .frame(minHeight: 130)
-                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.secondary.opacity(0.3), lineWidth: 1))
-            Spacer()
-        }
-    }
-
-    private func saveCustomVocabularyAndContinue() {
-        appState.customVocabulary = customVocabularyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        advance()
-    }
-
-    // launch at login
-
-    private var launchAtLoginStep: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Image(systemName: "sunrise.fill")
-                .font(.system(size: 48))
-                .foregroundColor(.blue)
-            Text("Launch at Login")
-                .font(.largeTitle.bold())
-            Toggle("Launch \(AppName.displayName) at login", isOn: $appState.launchAtLogin)
-            Spacer()
-        }
-    }
-
-    // overlay style
-
-    private var overlayStyleStep: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Image(systemName: "rectangle.dashed")
-                .font(.system(size: 48))
-                .foregroundColor(.blue)
-            Text("Recording overlay style")
-                .font(.largeTitle.bold())
-            VStack(spacing: 8) {
-                OverlayStyleOptionRow(isMinimalist: true, selection: $useCompactOverlay)
-                OverlayStyleOptionRow(isMinimalist: false, selection: $useCompactOverlay)
+            ScrollView {
+                DictationShortcutEditor(onCaptureStateChange: { capturing in
+                    if capturing {
+                        appState.suspendHotkeyMonitoringForShortcutCapture()
+                    } else {
+                        appState.resumeHotkeyMonitoringAfterShortcutCapture()
+                    }
+                })
             }
-            Text("You can change this later in Settings.")
-                .font(.caption)
+            Spacer()
+        }
+    }
+
+    // personalize (was four separate steps)
+
+    private var personalizeStep: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 56))
+                .foregroundColor(.accentColor)
+            Text("Personalize")
+                .font(.largeTitle.bold())
+            Text("Everything here is optional — you can change it later in Settings.")
+                .font(.callout)
                 .foregroundStyle(.secondary)
+            ScrollView {
+                VStack(spacing: 12) {
+                    SettingsCard(title: "Edit Mode", icon: "pencil",
+                                 subtitle: "Transform highlighted text with a spoken instruction") {
+                        VStack(spacing: 10) {
+                            FormRow(title: "Enable Edit Mode") {
+                                Toggle("", isOn: Binding(
+                                    get: { appState.isCommandModeEnabled },
+                                    set: { _ = appState.setCommandModeEnabled($0) }))
+                                    .labelsHidden()
+                            }
+                            Picker("Invocation Style", selection: Binding(
+                                get: { appState.commandModeStyle },
+                                set: { _ = appState.setCommandModeStyle($0) })) {
+                                Text("Automatic").tag(CommandModeStyle.automatic)
+                                Text("Manual").tag(CommandModeStyle.manual)
+                            }
+                            .pickerStyle(.segmented)
+                            .disabled(!appState.isCommandModeEnabled)
+                            if appState.commandModeStyle == .manual {
+                                Picker("Extra Modifier", selection: Binding(
+                                    get: { appState.commandModeManualModifier },
+                                    set: { _ = appState.setCommandModeManualModifier($0) })) {
+                                    Text("Cmd ⌘").tag(CommandModeManualModifier.command)
+                                    Text("Ctrl ⌃").tag(CommandModeManualModifier.control)
+                                    Text("Option ⌥").tag(CommandModeManualModifier.option)
+                                    Text("Shift ⇧").tag(CommandModeManualModifier.shift)
+                                }
+                                .pickerStyle(.segmented)
+                                .disabled(!appState.isCommandModeEnabled)
+                            }
+                            if let message = appState.commandModeManualModifierValidationMessage {
+                                Label(message, systemImage: "xmark.circle.fill")
+                                    .font(.caption)
+                                    .foregroundColor(.red)
+                            }
+                        }
+                    }
+                    SettingsCard(title: "Custom Vocabulary", icon: "text.book.closed.fill",
+                                 subtitle: "Names, jargon, and spellings the model should prefer") {
+                        TextEditor(text: $customVocabularyDraft)
+                            .font(.system(size: NSFont.systemFontSize(for: .small), design: .monospaced))
+                            .frame(minHeight: 80)
+                            .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.secondary.opacity(0.3), lineWidth: 1))
+                    }
+                    SettingsCard(title: "Startup & Overlay", icon: "rectangle.dashed") {
+                        VStack(spacing: 10) {
+                            FormRow(title: "Launch \(AppName.displayName) at login") {
+                                Toggle("", isOn: $appState.launchAtLogin)
+                                    .labelsHidden()
+                            }
+                            Divider()
+                            FormRow(title: "Show overlay on") {
+                                Picker("Show on", selection: $overlayDisplayID) {
+                                    Text("Active window (default)").tag(0)
+                                    Text("Primary display").tag(-1)
+                                    ForEach(NSScreen.screens, id: \.self) { screen in
+                                        Text(screen.localizedName).tag(Int(screen.displayID))
+                                    }
+                                }
+                                .labelsHidden()
+                                .frame(maxWidth: 220)
+                            }
+                        }
+                    }
+                }
+            }
             Spacer()
         }
     }
@@ -983,7 +682,7 @@ struct SetupView: View {
             VStack(spacing: 12) {
                 Image(systemName: "mic.fill")
                     .font(.system(size: 60))
-                    .foregroundColor(.blue)
+                    .foregroundColor(.accentColor)
                     .scaleEffect(testMicPulsing ? 1.15 : 1.0)
                     .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: testMicPulsing)
                 Text("Let's Try It Out!")
@@ -992,8 +691,8 @@ struct SetupView: View {
                     .font(.callout.weight(.semibold))
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
-                    .background(Capsule().fill(Color.blue.opacity(0.12)))
-                    .foregroundColor(.blue)
+                    .background(Capsule().fill(Color.accentColor.opacity(0.12)))
+                    .foregroundColor(.accentColor)
                 Text("Say anything — a sentence or two is perfect.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -1002,15 +701,15 @@ struct SetupView: View {
             VStack(spacing: 12) {
                 ZStack {
                     Circle()
-                        .fill(Color.blue.opacity(0.65))
+                        .fill(Color.accentColor.opacity(0.65))
                         .frame(width: 100, height: 100)
-                        .overlay(Circle().stroke(Color.blue.opacity(0.8), lineWidth: 3))
-                        .shadow(color: .blue.opacity(0.8), radius: 10)
+                        .overlay(Circle().stroke(Color.accentColor.opacity(0.8), lineWidth: 3))
+                        .shadow(color: Color.accentColor.opacity(0.8), radius: 10)
                     WaveformView(audioLevel: testAudioLevel)
                 }
                 Text("Listening...")
                     .font(.title2.weight(.semibold))
-                    .foregroundColor(.blue)
+                    .foregroundColor(.accentColor)
             }
         case .transcribing:
             VStack(spacing: 12) {
@@ -1041,7 +740,8 @@ struct SetupView: View {
                         .padding(12)
                         .frame(maxWidth: 420)
                         .background(RoundedRectangle(cornerRadius: 8)
-                            .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5)))
+                            .fill(Color(nsColor: .controlBackgroundColor)))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.08), lineWidth: 1))
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
                 Text(retryShortcutPrompt)
@@ -1205,19 +905,8 @@ struct SetupView: View {
 
     // MARK: Footer
 
-    private var canContinueFromCurrentStep: Bool {
-        switch currentStep {
-        case .micPermission:
-            return micPermissionGranted
-        case .accessibility:
-            return accessibilityGranted
-        case .screenRecording:
-            return appState.hasScreenRecordingPermission
-        case .testTranscription:
-            return testPhase == .done && !testTranscript.isEmpty && testError == nil
-        default:
-            return true
-        }
+    private var allPermissionsGranted: Bool {
+        micPermissionGranted && accessibilityGranted && screenRecordingGranted
     }
 
     private var footer: some View {
@@ -1235,7 +924,7 @@ struct SetupView: View {
             }
             Spacer()
             switch currentStep {
-            case .apiKey:
+            case .provider:
                 if providerUnreachable {
                     Button("Continue Offline") {
                         continueWithoutValidation()
@@ -1246,9 +935,10 @@ struct SetupView: View {
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isValidatingKey)
-            case .vocabulary:
+            case .personalize:
                 Button("Continue") {
-                    saveCustomVocabularyAndContinue()
+                    appState.customVocabulary = customVocabularyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                    advance()
                 }
                 .keyboardShortcut(.defaultAction)
             case .testTranscription:
@@ -1272,7 +962,7 @@ struct SetupView: View {
                     advance()
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(!canContinueFromCurrentStep)
+                .disabled(currentStep == .permissions && !allPermissionsGranted)
             }
         }
     }
@@ -1292,8 +982,12 @@ struct SetupView: View {
         keyValidationError = nil
         keyValidationDetail = nil
         providerUnreachable = false
-        let baseURL = appState.apiBaseURL.isEmpty ? AppState.defaultAPIBaseURL : appState.apiBaseURL
-        appState.apiBaseURL = baseURL
+        let baseURL = appState.aiProvider == .gemini
+            ? AIProvider.geminiValidationBaseURL
+            : (appState.apiBaseURL.isEmpty ? AppState.defaultAPIBaseURL : appState.apiBaseURL)
+        if appState.aiProvider != .gemini {
+            appState.apiBaseURL = baseURL
+        }
         Task {
             let outcome = await TranscriptionService.validateAPIKey(key, baseURL: baseURL)
             await MainActor.run {
