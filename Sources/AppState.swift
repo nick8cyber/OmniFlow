@@ -23,7 +23,7 @@ struct PrecomputedMacro {
 }
 
 enum SettingsTab: String, CaseIterable, Identifiable {
-    case general, prompts, macros, runLog, debug
+    case general, dictation, provider, processing, macros, runLog, debug
 
     var id: String { rawValue }
 
@@ -34,9 +34,11 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .general: return "General"
-        case .prompts: return "Prompts"
-        case .macros: return "Voice Macros"
-        case .runLog: return "Run Log"
+        case .dictation: return "Dictation"
+        case .provider: return "AI Provider"
+        case .processing: return "Processing"
+        case .macros: return "Macros"
+        case .runLog: return "History"
         case .debug: return "Debug"
         }
     }
@@ -44,7 +46,9 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .general: return "gearshape"
-        case .prompts: return "text.bubble"
+        case .dictation: return "waveform"
+        case .provider: return "cpu"
+        case .processing: return "sparkles"
         case .macros: return "music.mic"
         case .runLog: return "clock.arrow.circlepath"
         case .debug: return "wrench.and.screwdriver"
@@ -181,6 +185,7 @@ private enum TranscriptProcessingOutcome {
     case postProcessingSucceeded
     case postProcessingSkippedCooldown
     case postProcessingFailedFallback
+    case builtInProviderCleanup
     case preservedExactWording
     case preservedExactWordingTranslated
     case preservedExactWordingTranslationFailedFallback
@@ -200,6 +205,8 @@ private enum TranscriptProcessingOutcome {
         case .postProcessingFailedFallback:
             return isRetry ? "Post-processing failed on retry, using raw transcript"
                 : "Post-processing failed, using raw transcript"
+        case .builtInProviderCleanup:
+            return "Cleanup built in — transcription provider returned final text"
         case .preservedExactWording:
             return "Preserved exact wording, skipped post-processing"
         case .preservedExactWordingTranslated:
@@ -305,6 +312,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
     @Published var transcriptionModel: String {
         didSet { UserDefaults.standard.set(transcriptionModel, forKey: "transcription_model") }
+    }
+    @Published var aiProvider: AIProvider {
+        didSet { UserDefaults.standard.set(aiProvider.rawValue, forKey: AIProvider.storageKey) }
     }
     @Published var postProcessingModel: String {
         didSet { UserDefaults.standard.set(postProcessingModel, forKey: "post_processing_model") }
@@ -563,6 +573,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         transcriptionAPIKey = AppSettingsStorage.load(account: "transcription_api_key") ?? ""
         transcriptionModel = UserDefaults.standard.string(forKey: "transcription_model") ?? Self.defaultTranscriptionModel
+        aiProvider = AIProvider.migrate(stored: UserDefaults.standard.string(forKey: AIProvider.storageKey),
+                                        transcriptionModel: UserDefaults.standard.string(forKey: "transcription_model")
+                                            ?? Self.defaultTranscriptionModel)
         postProcessingModel = UserDefaults.standard.string(forKey: "post_processing_model") ?? Self.defaultPostProcessingModel
         postProcessingFallbackModel = UserDefaults.standard.string(forKey: "post_processing_fallback_model") ?? Self.defaultPostProcessingFallbackModel
         contextModel = UserDefaults.standard.string(forKey: "context_model") ?? Self.defaultContextModel
@@ -1497,7 +1510,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                                                           customVocabulary: self.customVocabulary,
                                                           customSystemPrompt: self.customSystemPrompt,
                                                           outputLanguage: self.outputLanguage,
-                                                          preserveExactWording: self.preserveExactWording)
+                                                          preserveExactWording: self.preserveExactWording,
+                                                          skipsLLMCleanup: self.aiProvider.skipsLLMCleanup)
                 try Task.checkCancellation()
                 await self.completeTranscription(result: result,
                                                  parsedTranscript: parsedTranscript,
@@ -1806,7 +1820,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                                    customVocabulary: String,
                                    customSystemPrompt: String,
                                    outputLanguage: String = "",
-                                   preserveExactWording: Bool)
+                                   preserveExactWording: Bool,
+                                   skipsLLMCleanup: Bool)
         async -> (finalTranscript: String, outcome: TranscriptProcessingOutcome, prompt: String) {
         let trimmedRawTranscript = rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedRawTranscript.isEmpty else {
@@ -1828,9 +1843,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         if let macro = findMatchingMacro(for: trimmedRawTranscript) {
             return (macro.original.payload, .voiceMacro(command: macro.original.command), "")
         }
-        if preserveExactWording {
+        if preserveExactWording || skipsLLMCleanup {
             if outputLanguage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return (trimmedRawTranscript, .preservedExactWording, "")
+                return (trimmedRawTranscript,
+                        skipsLLMCleanup && !preserveExactWording ? .builtInProviderCleanup : .preservedExactWording,
+                        "")
             }
             do {
                 let translation = try await postProcessingService.translateVerbatim(
@@ -1922,6 +1939,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private static func resolvedSystemPrompt(_ customSystemPrompt: String) -> String {
         let trimmed = customSystemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? PostProcessingService.defaultSystemPrompt : trimmed
+    }
+
+    /// Switches the provider family and keeps the stored model ids coherent
+    /// (a Gemini model id means nothing to an OpenAI-compatible endpoint).
+    func setAIProvider(_ provider: AIProvider) {
+        guard provider != aiProvider else { return }
+        aiProvider = provider
+        transcriptionModel = AIProvider.adjustedBatchModel(current: transcriptionModel, provider: provider)
+        realtimeStreamingModel = AIProvider.adjustedLiveModel(current: realtimeStreamingModel, provider: provider)
     }
 
     // MARK: Realtime streaming
@@ -2412,7 +2438,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                                                           customVocabulary: self.customVocabulary,
                                                           customSystemPrompt: self.customSystemPrompt,
                                                           outputLanguage: self.outputLanguage,
-                                                          preserveExactWording: self.preserveExactWording)
+                                                          preserveExactWording: self.preserveExactWording,
+                                                          skipsLLMCleanup: self.aiProvider.skipsLLMCleanup)
                 await MainActor.run {
                     self.finishRetry(item: item,
                                      parsedTranscript: parsedTranscript,

@@ -1,6 +1,7 @@
 @main
 struct OmniFlowTests {
     static func main() {
+        AIProviderTests.run()
         AppContextServiceTests.run()
         AppSettingsDefaultsTests.run()
         GeminiLiveTranscriptionTests.run()
