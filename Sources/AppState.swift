@@ -551,6 +551,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     init() {
         UserDefaults.standard.removeObject(forKey: "force_http2_transcription")
+        // Dead setting of the never-shipped "minimalist overlay" variant: it
+        // was written by old Settings/Setup but never read by the manager.
+        UserDefaults.standard.removeObject(forKey: "use_compact_overlay")
         if UserDefaults.standard.string(forKey: "post_processing_fallback_model") == Self.deprecatedModelIdentifier {
             UserDefaults.standard.set(Self.defaultPostProcessingFallbackModel, forKey: "post_processing_fallback_model")
         }
@@ -2728,11 +2731,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
             ? "9.9.9"
             : UpdateManager.shared.latestReleaseVersion
         overlayManager.showUpdateAvailable(version: version)
-    }
-
-    func toggleDebugPanel() {
-        selectedSettingsTab = .runLog
-        NotificationCenter.default.post(name: .showSettings, object: nil)
     }
 
     // MARK: Launch at login
