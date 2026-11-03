@@ -5,7 +5,7 @@ namespace FreeFlow.UI;
 /// <summary>Vector glyphs drawn on demand (no image assets). All painters take the drawing color.</summary>
 public static class Icons
 {
-    /// <summary>API-key glyph (Providers page).</summary>
+    /// <summary>API-key glyph (AI Provider page).</summary>
     public static void Key(Graphics g, Rectangle r, Color color)
     {
         using var pen = IconPen(g, r, color, 12f);
@@ -16,22 +16,6 @@ public static class Icons
         g.DrawLine(pen, x + w * 0.90f, y + h * 0.50f, x + w * 0.90f, y + h * 0.74f);
     }
 
-    /// <summary>Lightning bolt, filled (Shortcuts page).</summary>
-    public static void Bolt(Graphics g, Rectangle r, Color color)
-    {
-        float x = r.X, y = r.Y, w = r.Width, h = r.Height;
-        PointF[] points =
-        {
-            new(x + w * 0.55f, y + h * 0.05f),
-            new(x + w * 0.22f, y + h * 0.55f),
-            new(x + w * 0.45f, y + h * 0.55f),
-            new(x + w * 0.38f, y + h * 0.95f),
-            new(x + w * 0.78f, y + h * 0.42f),
-            new(x + w * 0.52f, y + h * 0.42f),
-        };
-        using var brush = new SolidBrush(color);
-        g.FillPolygon(brush, points);
-    }
 
     /// <summary>Four-point sparkles (Processing page).</summary>
     public static void Sparkles(Graphics g, Rectangle r, Color color)

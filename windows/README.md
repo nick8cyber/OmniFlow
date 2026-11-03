@@ -87,7 +87,7 @@ command mode / voice macros / cleanup policy → paste.
   finishes locally as "Nothing to transcribe" in under a second.
 
 - **Cleanup policy**: Google transcripts (live or record-then-transcribe) paste as-is;
-  Groq transcripts are cleaned by the LLM when the Behavior checkbox is on. Context is awaited
+  Groq transcripts are cleaned by the LLM when the Processing-page checkbox is on. Context is awaited
   only by the cleanup and command-mode branches — never on the paste path for Google.
 - **Quota note**: free-tier `generateContent` for gemini-3.5-transcribe is **25 requests/day**
   (shared by fallback transcriptions when Live is down). Live sessions have their own,
@@ -252,7 +252,7 @@ Same rules as upstream: no telemetry, no crash reporting, no FreeFlow server. Ne
 is provider calls only (Gemini, optionally Groq). Recorded audio is temporary and deleted right
 after transcription. `hookstate.json` contains counters and virtual-key codes only — never text
 or audio. History stores the last 20 dictations in plaintext when enabled (default, matching
-the macOS app); disable in Settings → Processing.
+the macOS app); disable in Settings → History.
 
 ## Manual test checklist
 
