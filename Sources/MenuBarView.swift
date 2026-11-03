@@ -1,14 +1,12 @@
 import SwiftUI
 import AppKit
 
+// Menu bar dropdown: quick actions only. Everything configurable lives in
+// Settings (shortcuts, vocabulary, setup wizard) — the menu stays short.
+
 struct MenuBarView: View {
     @EnvironmentObject private var appState: AppState
     @ObservedObject private var updateManager = UpdateManager.shared
-
-    private var appVersion: String {
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
-        return (version?.isEmpty == false) ? version! : "1.0"
-    }
 
     private func transcriptText(for item: PipelineHistoryItem) -> String {
         let postProcessed = item.postProcessedTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -40,8 +38,6 @@ struct MenuBarView: View {
 
     var body: some View {
         VStack(spacing: 4) {
-            header
-            Divider()
             if !appState.hasScreenRecordingPermission {
                 screenRecordingBanner
                 Divider()
@@ -58,7 +54,6 @@ struct MenuBarView: View {
             .disabled(appState.isTranscribing)
 
             if let hotkeyError = appState.hotkeyMonitoringErrorMessage {
-                Divider()
                 Text(hotkeyError)
                     .font(.caption)
                     .foregroundColor(.red)
@@ -66,7 +61,6 @@ struct MenuBarView: View {
                     .lineLimit(3)
             }
             if let errorMessage = appState.errorMessage {
-                Divider()
                 Text(errorMessage)
                     .font(.caption)
                     .foregroundColor(.red)
@@ -74,39 +68,21 @@ struct MenuBarView: View {
                     .lineLimit(3)
             }
 
-            Divider()
             if !appState.lastFailedAudioFileName.isEmpty && !appState.isRecording && !appState.isTranscribing {
                 Button("Paste Last Recording") {
                     appState.retryLastRecording()
                 }
-                Divider()
             }
             if !appState.lastTranscript.isEmpty && !appState.isRecording && !appState.isTranscribing {
                 pasteAgainSection
             }
             historyMenu
-            Divider()
-            Button("Paste Custom Word to Vocabulary") {
-                if appState.pasteWordToVocabulary() != nil {
-                    VocabularyNotificationManager.shared.flashCheckmark()
-                } else {
-                    // Empty clipboard or nothing new to add: without feedback
-                    // the user cannot tell "worked" from "did nothing".
-                    appState.errorMessage = "Nothing to add — the clipboard is empty or its words are already in the vocabulary."
-                    appState.statusText = "Nothing to add"
-                }
-            }
-            Divider()
-            shortcutMenu(for: .hold, title: "Hold Shortcut")
-            shortcutMenu(for: .toggle, title: "Toggle Shortcut")
-            shortcutMenu(for: .copyAgain, title: "Paste Again Shortcut")
             microphoneMenu
-            Button("Re-run Setup...") {
-                NotificationCenter.default.post(name: .showSetup, object: nil)
-            }
-            Button("Settings") {
+            Divider()
+            Button("Settings…") {
                 NotificationCenter.default.post(name: .showSettings, object: nil)
             }
+            .keyboardShortcut(",")
             checkForUpdatesButton
 
             if updateManager.updateAvailable {
@@ -121,14 +97,6 @@ struct MenuBarView: View {
             .keyboardShortcut("q")
         }
         .padding(4)
-    }
-
-    private var header: some View {
-        Text("\(AppName.displayName) v\(appVersion)")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 4)
     }
 
     private var screenRecordingBanner: some View {
@@ -218,65 +186,8 @@ struct MenuBarView: View {
                 }
                 Divider()
             }
-            Button("Open Run Log") {
+            Button("Open History") {
                 appState.selectedSettingsTab = .runLog
-                NotificationCenter.default.post(name: .showSettings, object: nil)
-            }
-        }
-    }
-
-    private func shortcutMenu(for role: ShortcutRole, title: String) -> some View {
-        let current: ShortcutBinding
-        switch role {
-        case .hold: current = appState.holdShortcut
-        case .toggle: current = appState.toggleShortcut
-        case .copyAgain: current = appState.copyAgainShortcut
-        }
-        let otherDictationBinding: ShortcutBinding
-        switch role {
-        case .hold: otherDictationBinding = appState.toggleShortcut
-        case .toggle: otherDictationBinding = appState.holdShortcut
-        case .copyAgain: otherDictationBinding = appState.holdShortcut
-        }
-        return Menu(title) {
-            Button {
-                _ = appState.setShortcut(.disabled, for: role)
-            } label: {
-                if current.isDisabled {
-                    Text("✓ Disabled")
-                } else {
-                    Text("  Disabled")
-                }
-            }
-            ForEach(ShortcutPreset.allCases) { preset in
-                Button {
-                    _ = appState.setShortcut(preset.binding, for: role)
-                } label: {
-                    if current == preset.binding {
-                        Text("✓ \(preset.title)")
-                    } else {
-                        Text("  \(preset.title)")
-                    }
-                }
-                .disabled(role == .copyAgain
-                    ? (preset.binding == appState.holdShortcut || preset.binding == appState.toggleShortcut)
-                    : preset.binding == otherDictationBinding)
-            }
-            if let saved = appState.savedCustomShortcut(for: role) {
-                Divider()
-                Button {
-                    _ = appState.setShortcut(saved, for: role)
-                } label: {
-                    if current == saved {
-                        Text("✓ Custom: \(saved.displayName)")
-                    } else {
-                        Text("  Custom: \(saved.displayName)")
-                    }
-                }
-            }
-            Divider()
-            Button("Customize…") {
-                appState.selectedSettingsTab = .general
                 NotificationCenter.default.post(name: .showSettings, object: nil)
             }
         }
