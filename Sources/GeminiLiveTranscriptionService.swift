@@ -360,13 +360,4 @@ final class GeminiLiveTranscriptionService: RealtimeTranscriptBackend {
         }
     }
 
-    private func closeSocket(_ closeCode: URLSessionWebSocketTask.CloseCode) {
-        let task = stateQueue.sync { () -> URLSessionWebSocketTask? in
-            let task = socket
-            socket = nil
-            closed = true
-            return task
-        }
-        task?.cancel(with: closeCode, reason: nil)
-    }
 }

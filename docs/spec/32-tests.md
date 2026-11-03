@@ -1,12 +1,14 @@
 # 32 — Тесты
 
-Спека тестового слоя. Референс: `Tests/` — **14 файлов**: `TestMain.swift`,
-`TestSupport.swift` и **12 сюитов**: `AppContextServiceTests`,
-`AppSettingsDefaultsTests`, `GeminiLiveTranscriptionTests`,
-`GeminiTranscriptionTests`, `LiveAudioLevelNormalizerTests`,
+Спека тестового слоя. Референс: `Tests/` — **17 файлов**: `TestMain.swift`,
+`TestSupport.swift` и **15 сюитов**: `AIProviderTests`,
+`AppContextServiceTests`, `AppSettingsDefaultsTests`,
+`GeminiLiveTranscriptionTests`, `GeminiTranscriptionTests`,
+`LiveAudioLevelNormalizerTests`, `LiveTranscriptAccumulatorTests`,
 `LLMCooldownManagerTests`, `ModelConfigurationTests`,
 `PostProcessingFallbackTests`, `SemanticVersionTests`, `ShortcutCoreTests`,
-`TranscriptionServiceTests`, `TranscriptTextCoreTests`.
+`SpeechHeuristicsTests`, `TranscriptionServiceTests`,
+`TranscriptTextCoreTests`.
 (Сюит `TranscriptionServiceTests` добавлен аудитом B: контракт
 `validateAPIKey -> ValidateOutcome` (01 §4.1) требует покрытия, а отдельного
 сюита для `Sources/TranscriptionService.swift` не было. Сюиты

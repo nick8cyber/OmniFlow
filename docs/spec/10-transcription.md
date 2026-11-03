@@ -220,17 +220,17 @@ private static let modelsSupportingVerboseJSON: Set<String> = [
 ### 3.6. Обработка ответа
 
 - Ответ не `HTTPURLResponse` → `TranscriptionError.submissionFailed("No response from server")`.
-- Статус != 200 → логируется тело ответа, бросается `TranscriptionError.submissionFailed(friendlyHTTPMessage(status:host:))` (см. 3.8).
+- Статус != 200 → логируется тело ответа, бросается `TranscriptionError.httpStatus(status, friendlyHTTPMessage(status:host:))` (см. 3.8; статус обязателен — иначе 429/4xx ретраятся как «transient»).
 - Статус 200 → `TranscriptionResponseParser.parse(data)` (см. `12-models-parsing.md`). Ошибка `TranscriptionResponseParsingError.invalidResponse` пробрасывается как `TranscriptionError.pollFailed("Invalid response")`.
 
 ### 3.7. Валидация ключа
 
 ```swift
-static func validateAPIKey(_ key: String, baseURL: String = "https://api.groq.com/openai/v1") async -> Bool
+static func validateAPIKey(_ key: String, baseURL: String) async -> ValidateOutcome
 ```
-- trim ключа; пустой → `false`.
+- trim ключа; пустой → `.invalidKey`.
 - `GET {normalizedBaseURL}/models`, `request.timeoutInterval = 10` (ровно 10 секунд), заголовок `Authorization: Bearer {key}`.
-- Результат: HTTP 200 → `true`; любой другой статус или ошибка сети → `false`.
+- Результат: HTTP 200 → `.valid`; 401/403 → `.invalidKey`; любой другой статус или ошибка сети → `.unavailable(friendlyHTTPMessage)`.
 
 ### 3.8. `friendlyHTTPMessage(status:host:)` — дословно
 
@@ -394,7 +394,7 @@ static func vocabularyTerms(from rawVocabulary: String) -> [String] {
 - Тело — `requestBody(...)` c base64 файла и `mimeType = audioContentType(for: fileURL.lastPathComponent)` (та же таблица, что в 3.5).
 - Вызов `LLMAPITransport.upload(for:from:)`.
 - Ответ не HTTPURLResponse → `submissionFailed("No response from server")`.
-- Статус != 200 → лог тела → `submissionFailed(GeminiTranscription.failureMessage(fromResponse: data, fallback: friendlyHTTPMessage(status:host:)))`.
+- Статус != 200 → лог тела → `httpStatus(status, GeminiTranscription.failureMessage(fromResponse: data, fallback: friendlyHTTPMessage(status:host:)))`.
 - Статус 200 → `GeminiTranscription.transcript(fromResponse: data)`.
 - Прочие ошибки пробрасываются как есть (после лога domain/code/description).
 

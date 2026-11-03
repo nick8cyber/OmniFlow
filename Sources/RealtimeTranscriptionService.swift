@@ -46,6 +46,7 @@ final class RealtimeTranscriptionService: RealtimeTranscriptBackend {
     private var terminalError: Error?
     private var closed = false
     private var finalContinuation: CheckedContinuation<String, Error>?
+    private var finalTimeoutTask: Task<Void, Never>?
 
     private static let realtimeLog = OSLog(subsystem: "com.nick8cyber.omniflow",
                                            category: "RealtimeTranscription")
@@ -176,6 +177,16 @@ final class RealtimeTranscriptionService: RealtimeTranscriptBackend {
                     outcome = .success(ready)
                 } else {
                     finalContinuation = continuation
+                    // The OpenAI realtime protocol gives no turn-completion
+                    // guarantee: a stalled-but-open socket would otherwise pin
+                    // the pipeline until manual Esc. The Gemini side got the
+                    // same cap via its adaptive finish (6 s); on timeout an
+                    // empty transcript sends the pipeline to the WAV fallback.
+                    finalTimeoutTask = Task { [weak self] in
+                        try? await Task.sleep(nanoseconds: 6_000_000_000)
+                        guard !Task.isCancelled else { return }
+                        self?.finishWithTimeout()
+                    }
                 }
             }
             lock.unlock()
@@ -189,6 +200,26 @@ final class RealtimeTranscriptionService: RealtimeTranscriptBackend {
                 send(["type": "input_audio_buffer.commit"], over: sendTarget)
             }
         }
+    }
+
+    /// Resumes a pending final continuation after the finish timeout: an empty
+    /// transcript makes the pipeline fall back to file transcription. Racing a
+    /// real final is safe — whoever nils `finalContinuation` under the lock
+    /// resumes it, the other side becomes a no-op.
+    private func finishWithTimeout() {
+        var pending: CheckedContinuation<String, Error>?
+        var closeTask: URLSessionWebSocketTask?
+        lock.lock()
+        if let continuation = finalContinuation {
+            finalContinuation = nil
+            closed = true
+            pending = continuation
+            closeTask = task
+        }
+        lock.unlock()
+        guard let pending else { return }
+        closeTask?.cancel(with: .normalClosure, reason: nil)
+        pending.resume(returning: "")
     }
 
     func cancel() {

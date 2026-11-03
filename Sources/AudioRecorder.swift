@@ -96,7 +96,13 @@ final class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputS
 
     var onRecordingReady: (() -> Void)?
     var onRecordingFailure: ((Error) -> Void)?
-    var onPCM16Samples: ((Data) -> Void)?
+    // Set on main, read on sampleBufferQueue: the lock makes the hand-off
+    // atomic (a torn read could drop the callback mid-teardown).
+    private let onPCM16SamplesLock = OSAllocatedUnfairLock<((Data) -> Void)?>(initialState: nil)
+    var onPCM16Samples: ((Data) -> Void)? {
+        get { onPCM16SamplesLock.withLock { $0 } }
+        set { onPCM16SamplesLock.withLock { $0 = newValue } }
+    }
 
     private static let sessionQueueKey = DispatchSpecificKey<UInt8>()
 
@@ -123,7 +129,6 @@ final class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputS
     /// seconds above the adaptive noise-floor threshold, and the floor itself.
     /// Powers the "decided not to speak" gate in AppState.
     private(set) var lastRecordingSpeechSeconds: Double = 0
-    private(set) var lastRecordingNoiseFloorRMS: Float = 0
     private let rmsSamplesLock = OSAllocatedUnfairLock<[Float]>(initialState: [])
     private static let rmsSampleCap = 4000
     private var loggedCaptureFormat = false
@@ -621,7 +626,6 @@ final class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputS
         }
         let speech = SpeechHeuristics.analyze(rmsSamples: rmsSamples, totalDuration: totalSeconds)
         lastRecordingSpeechSeconds = speech.speechSeconds
-        lastRecordingNoiseFloorRMS = speech.noiseFloorRMS
         let writeError = fileWriteErrorLock.withLock { self.fileWriteError }
         let keptURL: URL?
         if !discard, frames > 0, writeError == nil, let url = tempFileURL {
@@ -647,7 +651,8 @@ final class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputS
     // MARK: - Realtime branch (24 kHz Int16 stream)
 
     private func emitPCM16IfNeeded(_ pcmBuffer: AVAudioPCMBuffer) {
-        guard onPCM16Samples != nil else { return }
+        let callback = onPCM16Samples
+        guard callback != nil else { return }
         guard let sourceFormat = try? validatedPCMBufferFormat(
                 pcmBuffer.format,
                 context: "realtime transcription sample buffer"),
@@ -660,7 +665,7 @@ final class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputS
         let byteCount = Int(outputBuffer.frameLength) * MemoryLayout<Int16>.size
         guard byteCount > 0 else { return }
         let data = Data(bytes: int16ChannelData[0], count: byteCount)
-        onPCM16Samples?(data)
+        callback?(data)
     }
 
     // MARK: - Conversion

@@ -332,25 +332,29 @@ Rules:
                                             rawTranscript: rawTranscript,
                                             outputLanguage: outputLanguage)
         } catch {
-            guard isRetryableCleanupError(error), let retryModel = retryModel else { throw error }
-            if retryModel == primary {
-                if isSuspectedInstructionExecution(error) {
-                    return PostProcessingResult(transcript: rawTranscript, prompt: "")
+            guard isRetryableCleanupError(error) else { throw error }
+            if let retryModel = retryModel, retryModel != primary {
+                do {
+                    return try await cleanupAttempt(model: retryModel,
+                                                    systemPrompt: systemPrompt,
+                                                    userMessage: userMessage,
+                                                    rawTranscript: rawTranscript,
+                                                    outputLanguage: outputLanguage)
+                } catch {
+                    if isSuspectedInstructionExecution(error) {
+                        return PostProcessingResult(transcript: rawTranscript, prompt: "")
+                    }
+                    throw error
                 }
-                throw error
             }
-            do {
-                return try await cleanupAttempt(model: retryModel,
-                                                systemPrompt: systemPrompt,
-                                                userMessage: userMessage,
-                                                rawTranscript: rawTranscript,
-                                                outputLanguage: outputLanguage)
-            } catch {
-                if isSuspectedInstructionExecution(error) {
-                    return PostProcessingResult(transcript: rawTranscript, prompt: "")
-                }
-                throw error
+            // retryModel == primary (or none): a retry would repeat the same
+            // failure (spec 11 §6.5) — a suspected instruction execution
+            // returns the raw transcript as a successful result; other
+            // retryable failures throw into the raw-transcript fallback.
+            if isSuspectedInstructionExecution(error) {
+                return PostProcessingResult(transcript: rawTranscript, prompt: "")
             }
+            throw error
         }
     }
 

@@ -172,7 +172,7 @@ extension Notification.Name {
 | `UpdateManager.startPeriodicChecks` | первая проверка через `5` c; таймер `3600` c с tolerance `300` c | |
 | `TranscriptionService.validateAPIKey` | `request.timeoutInterval = 10` | GET `<base>/models` |
 | `VocabularyNotificationManager.flashCheckmark` | `2` c | Галочка в menubar |
-| `ProcessingIndicatorView` / `CompactProcessingIndicatorView` | спиннер включается через `1_000_000_000` нс (1 c) | |
+| *(удалено 2026-11-01)* `ProcessingIndicatorView` / `CompactProcessingIndicatorView` | сняты редизайном оверлея (ADR-0005) — единственная карточка 480×64 | |
 | `GeminiTranscription.customVocabularyLimit` | `1000` | Максимум терминов в запросе |
 | `TranscriptionResponseParser.hallucinationNoSpeechThreshold` | `0.1` | Порог `no_speech_prob` |
 | `LiveAudioLevelNormalizer` | `minimumRMS 0.00001`, `minSpanDB 18`, `peakHeadroomDB 8`, `speechGateMarginDB 3`, `minimumVisibleActiveLevel 0.12`, `noiseGateNormalizedThreshold 0.06`, `floorRiseWindowDB 4`, `floorFallBlend 0.12`, `floorRiseBlend 0.02`, `peakAttackBlend 0.55`, `peakReleaseBlend 0.04`, `displayAttackBlend 0.45`, `displayReleaseBlend 0.12`; старт: `noiseFloorDB -55`, `peakCeilingDB -37` | |
@@ -1105,7 +1105,7 @@ restore выполняется, если
   updateAvailable), `canJoinAllSpaces`.
 - Экран: `overlay_display_id` — `0` = активный экран, `-1` = primary
   (`NSScreen.screens.first`), иначе конкретный `displayID` (фолбэк primary).
-- Ширины: default 92, toggle 150, command 180, update 190, wing 36+36;
+- Ширины (исторические, до ADR-0005): default 92, toggle 150, command 180, update 190, wing 36+36;
   feedback: сообщение `min(420, max(180, count*6.8 + 60))`, без сообщения 92;
   на notched-экранах `max(notchWidth, ...)`; высота — `notchOverlap` (compact, дефолт)
   или `38 + notchOverlap` (legacy pill / error toast).

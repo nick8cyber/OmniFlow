@@ -296,11 +296,6 @@ final class RecordingOverlayManager {
         }
     }
 
-    private func updateOverlayLayout(animated: Bool) {
-        guard overlayWindow != nil else { return }
-        presentOverlay(animatedResize: animated)
-    }
-
     private func dismissAll() {
         toastHideToken = nil
         overlayState.isCommandMode = false

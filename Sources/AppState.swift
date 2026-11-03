@@ -1055,12 +1055,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 showScreenshotPermissionAlert(message: "OmniFlow needs screen recording access to read the selected text for Edit Mode.")
                 return false
             }
-            // The guard above already passed the cheap preflight, so this
-            // SCShareableContent round-trip no longer runs on every Edit Mode
-            // start; it only fires if preflight ever fails on this path.
-            if !CGPreflightScreenCaptureAccess() {
-                requestScreenCapturePermission()
-            }
         } else {
             hasScreenRecordingPermission = hasScreenCapturePermission()
         }
@@ -1187,6 +1181,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         pendingMicrophonePermissionSelectionSnapshot = nil
         pendingMicrophonePermissionManualCommandRequested = nil
         restartHotkeyMonitoring()
+        // Re-entrancy guard (after the restart above, so an early return can
+        // never leave hotkeys suspended): "Start Dictating" pressed while the
+        // system prompt was up must not race this completion into a second
+        // beginRecording.
+        guard !isRecording, !isTranscribing else { return }
         guard granted else {
             errorMessage = "Microphone permission denied. Grant access in System Settings > Privacy & Security > Microphone."
             statusText = "No Microphone"
@@ -1428,6 +1427,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
                                         inFlightContextTask: Task<AppContext, Never>?,
                                         capturedSelection: String?) {
         guard let fileURL else {
+            // The realtime service must be torn down here too: without it the
+            // open socket leaks for the rest of the process lifetime.
+            tearDownRealtimeService()
             isTranscribing = false
             audioRecorder.cleanup()
             endCriticalDictationActivity()
@@ -1782,7 +1784,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// marker is cleared on success so a stale recording cannot be pasted twice
     /// by accident (Windows tray parity).
     func retryLastRecording() {
-        guard !isRecording, !isTranscribing else { return }
+
         let fileName = lastFailedAudioFileName
         guard !fileName.isEmpty else { return }
         let audioURL = Self.audioStorageDirectory().appendingPathComponent(fileName)
@@ -1808,8 +1810,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     self.lastFailedAudioFileName = ""
                     self.lastTranscript = trimmed
                     self.statusText = "Pasted at cursor!"
-                    _ = self.writeTranscriptToPasteboard(trimmed)
-                    self.pasteAtCursor()
+                    // Preserve-clipboard parity with the main paste path: the
+                    // discarded snapshot left the user's clipboard replaced.
+                    let pendingRestore = self.writeTranscriptToPasteboard(trimmed)
+                    self.pasteAtCursorWhenShortcutReleased { [weak self] in
+                        self?.restoreClipboardIfNeeded(pendingRestore)
+                    }
                 }
             } catch is CancellationError {
                 await MainActor.run {
@@ -2245,8 +2251,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         guard let pendingRestore else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + clipboardRestoreDelay) {
             let pasteboard = NSPasteboard.general
+            // Strictly the captured changeCount: an identical-content fallback
+            // ("Paste Again" rewriting the same text within the restore window)
+            // must NOT count as ours — the restore would clobber it.
             let stillOurs = pasteboard.changeCount == pendingRestore.expectedChangeCount
-                || pasteboard.string(forType: .string) == pendingRestore.writtenTranscript
             guard stillOurs else { return }
             pendingRestore.snapshot.restore(to: pasteboard)
         }
@@ -2426,6 +2434,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     func retryTranscription(item: PipelineHistoryItem) {
         guard let audioFileName = item.audioFileName, !retryingItemIDs.contains(item.id) else { return }
+        // A retry is a full pipeline run: without this guard it races a live
+        // dictation (lastTranscript/pasteboard/statusText interleave) and
+        // cannot be cancelled.
+        guard !isTranscribing else { return }
         let audioURL = Self.audioStorageDirectory().appendingPathComponent(audioFileName)
         guard FileManager.default.fileExists(atPath: audioURL.path) else { return }
         retryingItemIDs.insert(item.id)
@@ -2459,10 +2471,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
         guard let fileService else { return }
 
-        Task { [weak self] in
+        transcriptionTask = Task { [weak self] in
             guard let self else { return }
+            self.isTranscribing = true
             do {
                 let rawTranscript = try await fileService.transcribe(fileURL: audioURL)
+                try Task.checkCancellation()
                 let parsedTranscript = TranscriptCommandParser.parse(
                     from: rawTranscript,
                     pressEnterCommandEnabled: self.isPressEnterVoiceCommandEnabled)
@@ -2479,10 +2493,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     self.finishRetry(item: item,
                                      parsedTranscript: parsedTranscript,
                                      result: result)
+                    self.isTranscribing = false
+                }
+            } catch is CancellationError {
+                await MainActor.run {
+                    self.retryingItemIDs.remove(item.id)
+                    self.isTranscribing = false
                 }
             } catch {
                 await MainActor.run {
                     self.retryItemFailed(item: item, error: error)
+                    self.isTranscribing = false
                 }
             }
         }

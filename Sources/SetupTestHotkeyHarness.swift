@@ -27,10 +27,6 @@ final class SetupTestHotkeyHarness: ObservableObject {
         hotkeyManager.stop()
     }
 
-    func resetSession() {
-        sessionController.reset()
-    }
-
     private func handle(event: ShortcutEvent) {
         guard let action = sessionController.handle(event: event, isTranscribing: isTranscribing) else { return }
         onAction?(action)
