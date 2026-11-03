@@ -34,7 +34,7 @@ OmniFlow is a free Mac dictation app inspired by [Wispr Flow](https://wisprflow.
 ## Quick Start
 
 1. Download the app from above or [click here](https://github.com/nick8cyber/OmniFlow/releases/latest/download/OmniFlow.dmg)
-2. Get a free Groq API key from [groq.com](https://groq.com/)
+2. Get a free Gemini API key from [aistudio.google.com](https://aistudio.google.com/apikey) — or a Groq key from [groq.com](https://groq.com/)
 3. Hold `Fn` to talk, or tap `Command-Fn` to start and stop dictation, and have whatever you say pasted into the current text field
 
 ## Features
@@ -47,7 +47,7 @@ OmniFlow is a free Mac dictation app inspired by [Wispr Flow](https://wisprflow.
 - **Gemini Live streaming:** `gemini-*-transcribe-live` streams the interim transcript into the overlay while you speak; the adaptive finish waits for the server-side tail refinement and falls back to file transcription when the live session produced nothing but the microphone heard speech. Transcription retries transient failures (3 attempts) before giving up.
 - **Paste Last Recording:** if transcription fails, the recording is kept — a menu-bar item re-transcribes and pastes it.
 - **Dictation overlay card:** a compact dark card (Windows-parity design) with an animated equalizer, the live transcript on two lines and the paste destination, top-center under the menu bar.
-- **Redesigned settings & onboarding:** a 7-tab settings window (General / Dictation / AI Provider / Processing / Macros / History), a trimmed quick-action menu-bar menu, and a 7-step setup wizard instead of 14.
+- **Redesigned settings & onboarding:** a 7-tab settings window (General / Dictation / AI Provider / Processing / Macros / History, plus a dev-only Debug tab), a trimmed quick-action menu-bar menu, and a 7-step setup wizard instead of 14.
 
 ## Edit Mode
 

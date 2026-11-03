@@ -38,8 +38,12 @@ Sources/
   App.swift                          # @main OmniFlowApp, MenuBarLabel, StampedMenuBarIcon
   AppDelegate.swift
   AppName.swift
+  AppSettingsDefaults.swift          # дефолты, пиннятые тестами (спека 00 §2.2)
   AppState.swift                     # оркестратор (+ приватные хелпер-типы)
   AppState+AddVocabularyButton.swift
+  LiveTranscriptAccumulator.swift    # аккумулятор Live-транскрипта (спека 10 §6.7)
+  SemanticVersion.swift              # semver-парсер (спека 31 §2)
+  SpeechHeuristics.swift             # гейт пустой записи (спека 10 §7.3)
   Notification+VoiceToText.swift     # Notification.Name.showSetup/.showSettings
   MenuBarView.swift
   Settings/                # окно настроек, файл на вкладку

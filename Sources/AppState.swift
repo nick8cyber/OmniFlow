@@ -460,18 +460,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 UserDefaults.standard.set(data, forKey: "voice_macros")
             }
             precomputeMacros()
-        // Migration side effects: a Gemini install needs an explicit live model
-        // (empty means "provider default", which skips streaming entirely) and
-        // LLM-side models the provider's OpenAI-compatible endpoint accepts.
-        if aiProvider == .gemini, realtimeStreamingModel.isEmpty {
-            realtimeStreamingModel = AIProvider.geminiLiveModel
-        }
-        postProcessingModel = AIProvider.adjustedLLMModel(current: postProcessingModel,
-                                                          provider: aiProvider,
-                                                          fallback: Self.defaultPostProcessingModel)
-        contextModel = AIProvider.adjustedLLMModel(current: contextModel,
-                                                   provider: aiProvider,
-                                                   fallback: Self.defaultContextModel)
         }
     }
     @Published var launchAtLogin: Bool {
@@ -645,6 +633,21 @@ final class AppState: ObservableObject, @unchecked Sendable {
         pipelineHistory = pipelineHistoryStore.loadAllHistory()
         availableMicrophones = AudioDevice.availableInputDevices()
         precomputeMacros()
+
+        // Migration side effects (must run at launch, not in a didSet): a
+        // Gemini install needs an explicit live model — empty means "provider
+        // default", which skips streaming entirely — and LLM-side model ids the
+        // provider's OpenAI-compatible endpoint accepts. These assignments also
+        // fire the contextModel didSet, rebuilding the routed context service.
+        if aiProvider == .gemini, realtimeStreamingModel.isEmpty {
+            realtimeStreamingModel = AIProvider.geminiLiveModel
+        }
+        postProcessingModel = AIProvider.adjustedLLMModel(current: postProcessingModel,
+                                                          provider: aiProvider,
+                                                          fallback: Self.defaultPostProcessingModel)
+        contextModel = AIProvider.adjustedLLMModel(current: contextModel,
+                                                   provider: aiProvider,
+                                                   fallback: Self.defaultContextModel)
         Self.writeRecordingStateFlag(false)
 
         overlayManager.onStopButtonPressed = { [weak self] in
@@ -1559,7 +1562,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let processingStatus = Self.statusMessage(for: result.outcome, parsedTranscript: parsedTranscript)
 
         // The reference keeps the parsed transcript (press-enter tail already
-        // stripped) as the "raw" display value in Run Log and history; retry
+        // stripped) as the "raw" display value in History and history; retry
         // re-parses from the stored string either way.
         let storedRawTranscript = parsedTranscript.transcript
         lastRawTranscript = storedRawTranscript
@@ -2093,7 +2096,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     // MARK: Transcription error mapping
 
-    /// Static so non-pipeline surfaces (Setup test step, Run Log retry) reuse
+    /// Static so non-pipeline surfaces (Setup test step, History retry) reuse
     /// the exact same user-facing wording as the main dictation pipeline.
     static func formattedTranscriptionError(_ error: Error) -> String {
         if let code = Self.urlErrorCode(in: error) {

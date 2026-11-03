@@ -539,7 +539,7 @@ Translate (`translateVerbatim`, spec 11 §4.7):
 
 ## Чек-лист реализации тестов
 
-- [ ] TestMain `@main` вызывает 13 сьютов в фиксированном порядке (AIProviderTests — первым), печатает `OmniFlowTests passed`
+- [ ] TestMain `@main` вызывает 15 сьютов в фиксированном порядке (AIProviderTests — первым), печатает `OmniFlowTests passed`
 - [ ] TestSupport: expect / expectEqual / expectApproximatelyEqual (accuracy 1e-6) на fatalError c #filePath/#line
 - [ ] Каждый сьют — enum со static run() и приватными test-функциями
 - [ ] SemanticVersion: 4 теста §2, включая каноническую цепочку prerelease
