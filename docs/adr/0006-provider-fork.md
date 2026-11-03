@@ -14,7 +14,11 @@
   `generativelanguage.googleapis.com/v1beta/openai`) и состав вкладки Processing
   зависят от провайдера: Cleanup/System Prompt/Safety — только OpenAI-compatible.
 - Пайплайн: `AIProvider.skipsLLMCleanup` — у Gemini LLM-cleanup не запускается,
-  outcome `.builtInProviderCleanup`; макросы и Edit Mode не затронуты.
+  outcome `.builtInProviderCleanup`; макросы не затронуты.
+- LLM-зависимые пути (Edit Mode, перевод Output language, контекст) идут через
+  OpenAI-совместимый эндпоинт Google (`geminiValidationBaseURL`) с тем же
+  ключом; модели постобработки/контекста согласуются при смене провайдера
+  (`adjustedLLMModel`, дефолт `gemini-2.5-flash`).
 - Переключение провайдера согласует модели (`adjustedBatchModel` /
   `adjustedLiveModel`), live-модель при уходе с Gemini сбрасывается в дефолт.
 

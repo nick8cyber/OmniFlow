@@ -460,6 +460,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 UserDefaults.standard.set(data, forKey: "voice_macros")
             }
             precomputeMacros()
+        // Migration side effects: a Gemini install needs an explicit live model
+        // (empty means "provider default", which skips streaming entirely) and
+        // LLM-side models the provider's OpenAI-compatible endpoint accepts.
+        if aiProvider == .gemini, realtimeStreamingModel.isEmpty {
+            realtimeStreamingModel = AIProvider.geminiLiveModel
+        }
+        postProcessingModel = AIProvider.adjustedLLMModel(current: postProcessingModel,
+                                                          provider: aiProvider,
+                                                          fallback: Self.defaultPostProcessingModel)
+        contextModel = AIProvider.adjustedLLMModel(current: contextModel,
+                                                   provider: aiProvider,
+                                                   fallback: Self.defaultContextModel)
         }
     }
     @Published var launchAtLogin: Bool {
@@ -1951,6 +1963,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
         aiProvider = provider
         transcriptionModel = AIProvider.adjustedBatchModel(current: transcriptionModel, provider: provider)
         realtimeStreamingModel = AIProvider.adjustedLiveModel(current: realtimeStreamingModel, provider: provider)
+        postProcessingModel = AIProvider.adjustedLLMModel(current: postProcessingModel,
+                                                          provider: provider,
+                                                          fallback: Self.defaultPostProcessingModel)
+        contextModel = AIProvider.adjustedLLMModel(current: contextModel,
+                                                   provider: provider,
+                                                   fallback: Self.defaultContextModel)
     }
 
     // MARK: Realtime streaming
@@ -2019,7 +2037,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     func makeAppContextService() -> AppContextService {
         Self.makeAppContextService(apiKey: apiKey,
-                                   baseURL: apiBaseURL.isEmpty ? Self.defaultAPIBaseURL : apiBaseURL,
+                                   baseURL: resolvedLLMBaseURL,
                                    customContextPrompt: customContextPrompt,
                                    contextModel: contextModel,
                                    contextScreenshotMaxDimension: contextScreenshotMaxDimension)
@@ -2058,8 +2076,19 @@ final class AppState: ObservableObject, @unchecked Sendable {
         apiKey
     }
 
+    /// LLM-side endpoint (Edit Mode, verbatim translation, context). A Gemini
+    /// key is rejected by Groq: route through Google's OpenAI-compatible
+    /// endpoint unless the user configured their own base URL.
+    var resolvedLLMBaseURL: String {
+        let base = apiBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        if base.isEmpty, aiProvider == .gemini {
+            return AIProvider.geminiValidationBaseURL
+        }
+        return base.isEmpty ? Self.defaultAPIBaseURL : base
+    }
+
     private var resolvedPostProcessingBaseURL: String {
-        apiBaseURL.isEmpty ? Self.defaultAPIBaseURL : apiBaseURL
+        resolvedLLMBaseURL
     }
 
     // MARK: Transcription error mapping

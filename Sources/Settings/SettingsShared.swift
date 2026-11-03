@@ -179,7 +179,7 @@ struct GeminiProviderFields: View {
             }
             ModelDropdownView(title: "Live Model",
                               subtitle: "Realtime streaming model.",
-                              predefinedModels: ModelConfiguration.transcriptionModels,
+                              predefinedModels: [AIProvider.geminiLiveModel],
                               defaultModel: AIProvider.geminiLiveModel,
                               textDraft: $realtimeModelDraft,
                               onCommit: { appState.realtimeStreamingModel = normalized(realtimeModelDraft) },
@@ -189,15 +189,17 @@ struct GeminiProviderFields: View {
                               })
             ModelDropdownView(title: "Context Model",
                               subtitle: "Used for context inference, with a text-only retry when screenshot analysis fails. Screenshot analysis requires a model that accepts image input.",
-                              predefinedModels: ModelConfiguration.visionModels,
-                              defaultModel: AppState.defaultContextModel,
+                              predefinedModels: ModelConfiguration.visionModels + AIProvider.geminiContextModels,
+                              defaultModel: AIProvider.geminiLLMModel,
                               textDraft: $contextModelDraft,
                               onCommit: { appState.contextModel = normalized(contextModelDraft) },
                               onReset: {
-                                  contextModelDraft = AppState.defaultContextModel
-                                  appState.contextModel = AppState.defaultContextModel
+                                  contextModelDraft = AIProvider.geminiLLMModel
+                                  appState.contextModel = AIProvider.geminiLLMModel
                               })
-        }
+            Text("Edit Mode and Output-language translation run through Google's OpenAI-compatible endpoint with this key; their LLM model (\(AIProvider.geminiLLMModel)) is managed automatically.")
+                .font(.caption)
+                .foregroundStyle(.secondary)        }
         .onAppear(perform: reloadDrafts)
         .onChange(of: appState.transcriptionModel) { newValue in
             if !isEditing(transcriptionModelDraft, appState.transcriptionModel) { transcriptionModelDraft = newValue }

@@ -6,6 +6,7 @@ enum AIProviderTests {
         testMigrationInfersFromTranscriptionModelWhenUnstored()
         testBatchModelAdjustmentOnSwitch()
         testLiveModelAdjustmentOnSwitch()
+        testLLMModelAdjustmentOnSwitch()
         testGeminiSkipsLLMCleanup()
     }
 
@@ -45,6 +46,18 @@ enum AIProviderTests {
                                 "")
         TestSupport.expectEqual(AIProvider.adjustedLiveModel(current: "gpt-4o-transcribe", provider: .openAICompatible),
                                 "gpt-4o-transcribe")
+    }
+
+    private static func testLLMModelAdjustmentOnSwitch() {
+        TestSupport.expectEqual(AIProvider.adjustedLLMModel(current: "openai/gpt-oss-20b", provider: .gemini,
+                                                            fallback: "openai/gpt-oss-20b"),
+                                AIProvider.geminiLLMModel)
+        TestSupport.expectEqual(AIProvider.adjustedLLMModel(current: "gemini-2.5-flash", provider: .gemini,
+                                                            fallback: "x"), "gemini-2.5-flash")
+        TestSupport.expectEqual(AIProvider.adjustedLLMModel(current: "gemini-2.5-flash", provider: .openAICompatible,
+                                                            fallback: "qwen/qwen3.6-27b"), "qwen/qwen3.6-27b")
+        TestSupport.expectEqual(AIProvider.adjustedLLMModel(current: "openai/gpt-oss-20b", provider: .openAICompatible,
+                                                            fallback: "qwen/qwen3.6-27b"), "openai/gpt-oss-20b")
     }
 
     private static func testGeminiSkipsLLMCleanup() {

@@ -47,6 +47,10 @@ enum AIProvider: String, CaseIterable, Identifiable {
     /// the transcription itself routes through the native Gemini API, which
     /// ignores the stored OpenAI-compatible base URL.
     static let geminiValidationBaseURL = "https://generativelanguage.googleapis.com/v1beta/openai"
+    /// LLM for the Gemini provider's OpenAI-compatible paths (Edit Mode,
+    /// verbatim translation). Vision-capable, so it also serves context.
+    static let geminiLLMModel = "gemini-2.5-flash"
+    static let geminiContextModels = ["gemini-2.5-flash", "gemini-2.0-flash"]
 
     /// First-run migration: an install without the stored key keeps whatever
     /// behaviour its transcription model implies (Gemini models already route
@@ -67,6 +71,19 @@ enum AIProvider: String, CaseIterable, Identifiable {
             return isGeminiModel ? current : geminiBatchModel
         case .openAICompatible:
             return isGeminiModel ? openAIBatchModel : current
+        }
+    }
+
+    /// Edit Mode, verbatim translation and context inference run through the
+    /// provider's OpenAI-compatible endpoint: a Groq model id means nothing to
+    /// Gemini and vice versa.
+    static func adjustedLLMModel(current: String, provider: AIProvider, fallback: String) -> String {
+        let isGeminiModel = current.lowercased().contains("gemini")
+        switch provider {
+        case .gemini:
+            return isGeminiModel ? current : geminiLLMModel
+        case .openAICompatible:
+            return isGeminiModel ? fallback : current
         }
     }
 

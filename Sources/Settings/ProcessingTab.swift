@@ -88,6 +88,10 @@ private struct VocabularyCard: View {
                         .foregroundStyle(.secondary)
                     Spacer()
                     Button("Add from Clipboard") {
+                        // Commit the draft first: with the editor focused, the
+                        // external-write sync is suppressed and onDisappear
+                        // would otherwise roll the added term back.
+                        commit()
                         if appState.pasteWordToVocabulary() != nil {
                             VocabularyNotificationManager.shared.flashCheckmark()
                             notice = nil
@@ -259,7 +263,7 @@ private struct SystemPromptCard: View {
         testError = nil
         let service = PostProcessingService(
             apiKey: appState.apiKey,
-            baseURL: appState.apiBaseURL.isEmpty ? AppState.defaultAPIBaseURL : appState.apiBaseURL,
+            baseURL: appState.resolvedLLMBaseURL,
             preferredModel: appState.postProcessingModel,
             preferredFallbackModel: appState.postProcessingFallbackModel,
             instructionExecutionGuardEnabled: appState.instructionExecutionGuardEnabled)

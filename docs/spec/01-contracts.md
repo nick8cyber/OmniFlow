@@ -42,11 +42,14 @@ Sources/
   AppState+AddVocabularyButton.swift
   Notification+VoiceToText.swift     # Notification.Name.showSetup/.showSettings
   MenuBarView.swift
-  SettingsView.swift
+  Settings/                # окно настроек, файл на вкладку
+    SettingsWindow.swift GeneralTab.swift DictationTab.swift ProviderTab.swift
+    ProcessingTab.swift MacrosTab.swift HistoryTab.swift DebugTab.swift
+    SettingsShared.swift
+  UITheme.swift                      # UI-кит: карточки/строки/баннеры/плитки
+  AIProvider.swift                   # развилка провайдера (спека 10 §1.1)
   SetupView.swift
   ModelDropdownView.swift
-  PipelineDebugPanelView.swift
-  PipelineDebugContentView.swift
   ShortcutComponents.swift
   RecordingOverlay.swift
   SetupTestHotkeyHarness.swift
