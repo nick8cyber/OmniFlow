@@ -33,19 +33,32 @@ public static class Icons
         g.FillPolygon(brush, points);
     }
 
-    /// <summary>Three sliders (Behavior page).</summary>
-    public static void Sliders(Graphics g, Rectangle r, Color color)
+    /// <summary>Four-point sparkles (Processing page).</summary>
+    public static void Sparkles(Graphics g, Rectangle r, Color color)
     {
-        using var pen = IconPen(g, r, color, 11f);
         float x = r.X, y = r.Y, w = r.Width, h = r.Height;
-        foreach (var (ty, kx) in new[] { (0.25f, 0.64f), (0.52f, 0.32f), (0.79f, 0.70f) })
+        PointF[] star =
         {
-            g.DrawLine(pen, x + w * 0.08f, y + h * ty, x + w * 0.92f, y + h * ty);
-            var knob = new RectangleF(x + w * kx - w * 0.09f, y + h * ty - h * 0.09f, w * 0.18f, h * 0.18f);
-            using var brush = new SolidBrush(color);
-            g.FillEllipse(brush, knob);
-        }
+            new(x + w * 0.50f, y + h * 0.04f),
+            new(x + w * 0.62f, y + h * 0.38f),
+            new(x + w * 0.96f, y + h * 0.50f),
+            new(x + w * 0.62f, y + h * 0.62f),
+            new(x + w * 0.50f, y + h * 0.96f),
+            new(x + w * 0.38f, y + h * 0.62f),
+            new(x + w * 0.04f, y + h * 0.50f),
+            new(x + w * 0.38f, y + h * 0.38f),
+        };
+        using var brush = new SolidBrush(color);
+        g.FillPolygon(brush, star);
+        PointF[] small =
+        {
+            new(x + w * 0.82f, y + h * 0.78f),
+            new(x + w * 0.88f, y + h * 0.92f),
+            new(x + w * 0.74f, y + h * 0.92f),
+        };
+        g.FillPolygon(brush, small);
     }
+
 
     /// <summary>"Aa" word glyph (Vocabulary page).</summary>
     public static void Letters(Graphics g, Rectangle r, Color color) =>

@@ -11,7 +11,7 @@ public sealed partial class SettingsForm
     /// <summary>Creates a scrollable page with a title/caption header and a card stack; returns the stack.</summary>
     private TableLayoutPanel MakePage(string title, string caption)
     {
-        // AutoScroll: several pages (Behavior, Providers) are taller than the
+        // AutoScroll: several pages (Processing, AI Provider) are taller than the
         // window — without it the tail of the cards is unreachable.
         var page = new Panel
         {
@@ -70,6 +70,13 @@ public sealed partial class SettingsForm
         stack.Controls.Add(card, 0, row);
     }
 
+    private static NumericUpDown NumericRow(TableLayoutPanel grid, string label, int value)
+    {
+        var host = ThemeInputs.Numeric(out var numeric, 5, 600, value);
+        Grids.Row(grid, label, host);
+        return numeric;
+    }
+
     private static Label ResultLabel() => new()
     {
         Text = "",
@@ -116,9 +123,9 @@ public sealed partial class SettingsForm
         return combo;
     }
 
-    private void BuildProvidersPage()
+    private void BuildProviderPage()
     {
-        var stack = MakePage("Providers", "API keys and models for voice input and cleanup.");
+        var stack = MakePage("AI Provider", "Keys and models for voice input and cleanup.");
 
         var gemini = new Card("Google Gemini", badge: new Badge("Primary · required"));
         Grids.Row(gemini.Body, "API key",
@@ -157,26 +164,32 @@ public sealed partial class SettingsForm
         Grids.Span(groq.Body, _groqTestResult, 0, 2);
         Grids.Span(groq.Body, Theme.Caption("Key is stored encrypted (DPAPI) on this device."), 0, 2);
         AddCard(stack, groq);
+
+        var timeouts = new Card("Timeouts (seconds)", "Provider call budgets; raise them for slow local endpoints.");
+        _transcriptionTimeout = NumericRow(timeouts.Body, "Transcription", _settings.TranscriptionTimeoutSeconds);
+        _postProcessingTimeout = NumericRow(timeouts.Body, "Cleanup", _settings.PostProcessingTimeoutSeconds);
+        _contextTimeout = NumericRow(timeouts.Body, "Context", _settings.ContextTimeoutSeconds);
+        AddCard(stack, timeouts);
     }
 
-    // ------------------------------------------------------------- shortcuts
+    // ------------------------------------------------------------- dictation
 
-    private void BuildShortcutsPage()
+    private void BuildDictationPage()
     {
-        var stack = MakePage("Shortcuts", "Global keys — they work in any app.");
+        var stack = MakePage("Dictation", "Hotkeys, microphone, and languages — the recording experience.");
 
-        var dictation = new Card("Dictation");
-        Grids.Row(dictation.Body, "Hold to talk",
+        var hotkeys = new Card("Hotkeys");
+        Grids.Row(hotkeys.Body, "Hold to talk",
             ThemeInputs.Wrap(_holdBox = new HotkeyBox(new HotkeyBinding(_settings.HoldHotkeyVk, _settings.HoldHotkeyMods))));
-        Grids.Row(dictation.Body, "Toggle (tap)",
+        Grids.Row(hotkeys.Body, "Toggle (tap)",
             ThemeInputs.Wrap(_toggleBox = new HotkeyBox(new HotkeyBinding(_settings.ToggleHotkeyVk, _settings.ToggleHotkeyMods))));
-        Grids.Row(dictation.Body, "Paste again",
+        Grids.Row(hotkeys.Body, "Paste again",
             ThemeInputs.Wrap(_pasteAgainBox = new HotkeyBox(new HotkeyBinding(_settings.PasteAgainHotkeyVk, _settings.PasteAgainHotkeyMods))));
-        Grids.Span(dictation.Body, Theme.Caption(
+        Grids.Span(hotkeys.Body, Theme.Caption(
             "Click a field and press the desired combination. Esc, Delete, or Backspace unbinds the shortcut."), 0, 2);
-        AddCard(stack, dictation);
+        AddCard(stack, hotkeys);
 
-        var options = new Card("Options");
+        var options = new Card("Hotkey options");
         _suppressKey = Grids.Check(
             "Suppress the bound key so it does nothing else (recommended for Caps Lock)",
             _settings.SuppressBoundKey);
@@ -185,13 +198,6 @@ public sealed partial class SettingsForm
             "Caps Lock is the default hold key (the Windows analog of the Mac Fn key). " +
             "Ctrl+Caps Lock toggles dictation; press-and-release then press again to stop."), 0, 2);
         AddCard(stack, options);
-    }
-
-    // ------------------------------------------------------------- behavior
-
-    private void BuildBehaviorPage()
-    {
-        var stack = MakePage("Behavior", "How dictation captures context and delivers text.");
 
         var microphone = new Card("Microphone");
         _micDevice = MicDeviceCombo(_settings.MicDeviceName);
@@ -203,11 +209,45 @@ public sealed partial class SettingsForm
             "Use Gemini realtime streaming (Live) — transcript appears as you speak, own free-tier quota",
             _settings.RealtimeStreamingEnabled);
         Grids.Span(microphone.Body, _realtimeStreaming, 2, 2);
+        AddCard(stack, microphone);
+
+        var languages = new Card("Languages");
+        Grids.Row(languages.Body, "Spoken language",
+            _transcriptionLanguage = TranscriptionLanguageCombo(_settings.TranscriptionLanguage));
+        Grids.Row(languages.Body, "Output language",
+            _outputLanguage = OutputLanguageCombo(_settings.OutputLanguage));
+        AddCard(stack, languages);
+    }
+
+    // ------------------------------------------------------------- processing
+
+    private void BuildProcessingPage()
+    {
+        var stack = MakePage("Processing", "Cleanup, context, and prompt overrides. Google transcripts paste as-is; these options shape the Groq-mode path.");
+
+        var cleanup = new Card("Cleanup policy");
         _cleanupGroq = Grids.Check(
             "Clean up Groq-mode transcripts with an LLM (Google transcripts always paste as-is)",
             _settings.CleanupGroqTranscripts);
-        Grids.Span(microphone.Body, _cleanupGroq, 2, 4);
-        AddCard(stack, microphone);
+        Grids.Span(cleanup.Body, _cleanupGroq, 4, 4);
+        _preserveExactWording = Grids.Check("Preserve exact wording (skip cleanup)", _settings.PreserveExactWording);
+        Grids.Span(cleanup.Body, _preserveExactWording, 2, 2);
+        _commandMode = Grids.Check(
+            "Edit Mode: transform selected text with a spoken command", _settings.CommandModeEnabled);
+        Grids.Span(cleanup.Body, _commandMode, 2, 4);
+        _pressEnter = Grids.Check(
+            "Spoken \"press enter\" command presses Enter after paste", _settings.PressEnterEnabled);
+        Grids.Span(cleanup.Body, _pressEnter, 2, 2);
+        AddCard(stack, cleanup);
+
+        var pasting = new Card("Pasting");
+        _preserveClipboard = Grids.Check(
+            "Restore previous clipboard contents after pasting", _settings.PreserveClipboard);
+        Grids.Span(pasting.Body, _preserveClipboard, 4, 2);
+        _keepInClipboardHistory = Grids.Check(
+            "Keep dictation in clipboard history (default: hidden)", _settings.KeepInClipboardHistory);
+        Grids.Span(pasting.Body, _keepInClipboardHistory, 2, 2);
+        AddCard(stack, pasting);
 
         var context = new Card("Context-aware cleanup");
         _contextEnabled = Grids.Check("Read foreground app name and window title", _settings.ContextEnabled);
@@ -216,55 +256,6 @@ public sealed partial class SettingsForm
             "Include a screenshot of the foreground window (more private: off)", _settings.IncludeScreenshot);
         Grids.Span(context.Body, _includeScreenshot, 2, 4);
         AddCard(stack, context);
-
-        var text = new Card("Text output");
-        _pressEnter = Grids.Check(
-            "Spoken \"press enter\" command presses Enter after paste", _settings.PressEnterEnabled);
-        Grids.Span(text.Body, _pressEnter, 4, 2);
-        _preserveClipboard = Grids.Check(
-            "Restore previous clipboard contents after pasting", _settings.PreserveClipboard);
-        Grids.Span(text.Body, _preserveClipboard, 2, 2);
-        _preserveExactWording = Grids.Check("Preserve exact wording (skip cleanup)", _settings.PreserveExactWording);
-        Grids.Span(text.Body, _preserveExactWording, 2, 2);
-        _commandMode = Grids.Check(
-            "Edit Mode: transform selected text with a spoken command", _settings.CommandModeEnabled);
-        Grids.Span(text.Body, _commandMode, 2, 4);
-        AddCard(stack, text);
-
-        var storage = new Card("Storage");
-        _keepHistory = Grids.Check("Keep a local dictation history (last 20 entries)", _settings.KeepHistory);
-        Grids.Span(storage.Body, _keepHistory, 4, 2);
-        _keepInClipboardHistory = Grids.Check(
-            "Keep dictation in clipboard history (default: hidden)", _settings.KeepInClipboardHistory);
-        Grids.Span(storage.Body, _keepInClipboardHistory, 2, 4);
-        AddCard(stack, storage);
-
-        var languages = new Card("Languages");
-        Grids.Row(languages.Body, "Spoken language",
-            _transcriptionLanguage = TranscriptionLanguageCombo(_settings.TranscriptionLanguage));
-        Grids.Row(languages.Body, "Output language",
-            _outputLanguage = OutputLanguageCombo(_settings.OutputLanguage));
-        AddCard(stack, languages);
-
-        var timeouts = new Card("Timeouts (seconds)");
-        _transcriptionTimeout = NumericRow(timeouts.Body, "Transcription", _settings.TranscriptionTimeoutSeconds);
-        _postProcessingTimeout = NumericRow(timeouts.Body, "Cleanup", _settings.PostProcessingTimeoutSeconds);
-        _contextTimeout = NumericRow(timeouts.Body, "Context", _settings.ContextTimeoutSeconds);
-        AddCard(stack, timeouts);
-    }
-
-    private static NumericUpDown NumericRow(TableLayoutPanel grid, string label, int value)
-    {
-        var host = ThemeInputs.Numeric(out var numeric, 5, 600, value);
-        Grids.Row(grid, label, host);
-        return numeric;
-    }
-
-    // ------------------------------------------------------------- vocabulary
-
-    private void BuildVocabularyPage()
-    {
-        var stack = MakePage("Vocabulary & Prompts", "Custom words, macros, and prompt overrides.");
 
         var vocabulary = new Card("Custom vocabulary", "Comma-separated names and jargon the transcription should prefer.");
         Grids.Span(vocabulary.Body,
@@ -280,8 +271,15 @@ public sealed partial class SettingsForm
         Grids.Span(contextPrompt.Body,
             ThemeInputs.Multiline(out _contextPrompt, _settings.CustomContextPrompt, 60), 2, 2);
         AddCard(stack, contextPrompt);
+    }
 
-        var macros = new Card("Voice macros", "Spoken command → pasted text. Select an entry to edit it.");
+    // ------------------------------------------------------------- macros
+
+    private void BuildMacrosPage()
+    {
+        var stack = MakePage("Macros", "Spoken command → pasted text, no cleanup in between.");
+
+        var macros = new Card("Voice macros", "Select an entry to edit it.");
         var macroListBox = new ThemeListBox { Height = 108 };
         _macroList = macroListBox;
         Grids.Span(macros.Body, ThemeInputs.List(macroListBox, 110), 2, 4);
@@ -375,6 +373,12 @@ public sealed partial class SettingsForm
             Margin = Padding.Empty,
         };
         card.MakeBodyFill();
+
+        _keepHistory = Grids.Check("Keep a local dictation history (last 20 entries)", _settings.KeepHistory);
+        int keepRow = card.Body.RowCount++;
+        card.Body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        card.Body.Controls.Add(_keepHistory, 0, keepRow);
+        card.Body.SetColumnSpan(_keepHistory, 2);
 
         var list = new ThemeListBox { Dock = DockStyle.Fill };
         int count = 0;

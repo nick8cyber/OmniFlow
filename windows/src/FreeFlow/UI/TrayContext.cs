@@ -259,8 +259,10 @@ public static class Autostart
 }
 
 /// <summary>
-/// Runtime-drawn mic tray icon (no .ico asset needed): dark rounded tile with a
-/// crisp white microphone; while recording, a small accent dot marks live state.
+/// Runtime-drawn tray icon (no .ico asset needed): blue→violet gradient tile with
+/// the brand motif — speech bars pouring into text lines (parity with the macOS
+/// app icon, OmniFlow ADR-0008); while recording, a small accent dot marks live
+/// state.
 /// </summary>
 public static class AppIcon
 {
@@ -286,22 +288,33 @@ public static class AppIcon
         {
             g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
             var tile = new Rectangle(1, 1, 30, 30);
-            Theme.FillRounded(g, Color.FromArgb(30, 30, 36), tile, 8);
-            Theme.StrokeRounded(g, Color.FromArgb(56, 56, 64), tile, 8);
-
-            using var glyph = new SolidBrush(Color.FromArgb(235, 235, 240));
-            using (var path = Theme.RoundedPath(new Rectangle(13, 5, 6, 12), 3))
+            using (var brush = new System.Drawing.Drawing2D.LinearGradientBrush(
+                       new Point(0, 0), new Point(32, 32),
+                       Color.FromArgb(88, 166, 255), Color.FromArgb(107, 77, 255)))
             {
-                g.FillPath(glyph, path); // microphone capsule
+                g.FillPath(brush, Theme.RoundedPath(tile, 8));
             }
-            using var pen = new Pen(Color.FromArgb(235, 235, 240), 2.1f)
+
+            // Brand motif: five speech bars above two text lines (16k grid = 32px tile).
+            using var glyph = new SolidBrush(Color.FromArgb(242, 242, 246));
+            int[] heights = { 5, 8, 11, 8, 5 };
+            const int barW = 2, gap = 1;
+            int total = heights.Length * barW + (heights.Length - 1) * gap;
+            int x0 = (32 - total) / 2, cy = 13;
+            for (int i = 0; i < heights.Length; i++)
             {
-                StartCap = System.Drawing.Drawing2D.LineCap.Round,
-                EndCap = System.Drawing.Drawing2D.LineCap.Round,
-            };
-            g.DrawArc(pen, 10, 11, 12, 12, 0, 180); // cradle
-            g.DrawLine(pen, 16, 23, 16, 26);        // stem
-            g.DrawLine(pen, 12, 26, 20, 26);        // base
+                int bx = x0 + i * (barW + gap);
+                using var bar = Theme.RoundedPath(new Rectangle(bx, cy - heights[i] / 2, barW, heights[i]), 1);
+                g.FillPath(glyph, bar);
+            }
+            using (var line1 = Theme.RoundedPath(new Rectangle(10, 20, 12, 2), 1))
+            {
+                g.FillPath(glyph, line1);
+            }
+            using (var line2 = Theme.RoundedPath(new Rectangle(10, 24, 8, 2), 1))
+            {
+                g.FillPath(glyph, line2);
+            }
 
             if (recording)
             {

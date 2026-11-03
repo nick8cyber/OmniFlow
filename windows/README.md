@@ -24,7 +24,7 @@ Fallback (any Live error) →  the buffered WAV → gemini-3.5-transcribe :gener
 
 Google transcripts always paste as-is: the transcribe models punctuate themselves, and LLM
 cleanup would only burn the tight free-tier generateContent quota (25 requests/day). LLM
-cleanup is an option for the Groq fallback mode only (Settings → Behavior, default on).
+cleanup is an option for the Groq fallback mode only (Settings → Processing, default on).
 
 ## Build
 
@@ -55,7 +55,7 @@ The published exe is a single ~63 MB file (compression on, no symbols).
 2. **Hold the Right Alt key** to dictate — the interim transcript appears live in the overlay.
    Release → the text is pasted at the cursor. **Ctrl+Caps Lock** toggles hands-free dictation
    (press-release-press to stop). **Esc** cancels a session (toggle mode only).
-3. Settings → Behavior → Microphone: **pin the input device** (recommended — the Windows default
+3. Settings → Dictation → Microphone: **pin the input device** (recommended — the Windows default
    endpoint is a lottery when Bluetooth headsets connect and leave). The overlay card appears at
    the top center of the **paste-target window's monitor** (the one you are typing into; falls
    back to the cursor's monitor when unknown) and re-asserts topmost every 0.5 s so
@@ -187,9 +187,9 @@ same product decisions, recorded as ADRs in its
 | 0003 Fail-fast rate limits | Implemented (transient-only retries, cooldowns own 429s) |
 | 0004 Empty-capture gate | Implemented (`SpeechHeuristics`, C# port of the Swift reference, shared test cases) |
 | 0005 Single overlay card | Implemented (`OverlayForm.cs` — the original this card was ported from) |
-| 0006 Provider fork | Semantics are native here: Google transcripts paste as-is, LLM cleanup is a Groq-only option (Settings → Behavior). No explicit Gemini/Groq switch — routing is model-driven, cleanup policy is per-provider. |
-| 0007 Settings IA redesign | macOS-only restructure; the WinForms settings pages (SettingsForm.Pages.cs) keep their own layout by design — platforms intentionally differ |
-| 0008 Branding | Windows uses the same FreeFlow-lineage icon for now; the new macOS icon is not applied to the tray app |
+| 0006 Provider fork | Implemented: Google transcripts paste as-is, LLM cleanup is a Groq-only option (Settings → Processing). No explicit Gemini/Groq switch — routing is model-driven, cleanup policy is per-provider. |
+| 0007 Settings IA redesign | Implemented (0.5.1): the settings sidebar now mirrors the macOS IA — AI Provider, Dictation, Processing, Macros, History; the old Behavior grab-bag page is dissolved into Dictation/Processing (SettingsForm.Pages.cs) |
+| 0008 Branding | Implemented (0.5.1): the "speech bars → text lines" motif on a blue→violet gradient is the exe icon (`app.ico`) and the runtime-drawn tray icon (recording state keeps the accent dot) |
 
 ## Code map
 
@@ -252,7 +252,7 @@ Same rules as upstream: no telemetry, no crash reporting, no FreeFlow server. Ne
 is provider calls only (Gemini, optionally Groq). Recorded audio is temporary and deleted right
 after transcription. `hookstate.json` contains counters and virtual-key codes only — never text
 or audio. History stores the last 20 dictations in plaintext when enabled (default, matching
-the macOS app); disable in Settings → Behavior.
+the macOS app); disable in Settings → Processing.
 
 ## Manual test checklist
 

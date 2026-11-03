@@ -5,9 +5,10 @@ using FreeFlow.Services;
 namespace FreeFlow.UI;
 
 /// <summary>
-/// Settings window: sidebar navigation (Providers, Shortcuts, Behavior,
-/// Vocabulary, History) over scrollable card pages, with a footer action bar.
-/// The section builders live in SettingsForm.Pages.cs.
+/// Settings window: sidebar navigation mirroring the macOS IA (AI Provider,
+/// Dictation, Processing, Macros, History — OmniFlow ADR-0007) over scrollable
+/// card pages, with a footer action bar. The section builders live in
+/// SettingsForm.Pages.cs.
 /// </summary>
 public sealed partial class SettingsForm : Form
 {
@@ -77,10 +78,10 @@ public sealed partial class SettingsForm : Form
         Icon = AppIcon.Create();
 
         BuildShell();
-        BuildProvidersPage();
-        BuildShortcutsPage();
-        BuildBehaviorPage();
-        BuildVocabularyPage();
+        BuildProviderPage();
+        BuildDictationPage();
+        BuildProcessingPage();
+        BuildMacrosPage();
         BuildHistoryPage();
         SelectPage(0);
 
@@ -139,15 +140,15 @@ public sealed partial class SettingsForm : Form
 
         var navItems = new (string Title, Action<Graphics, Rectangle, Color> Icon)[]
         {
-            ("Providers", Icons.Key),
-            ("Shortcuts", Icons.Bolt),
-            ("Behavior", Icons.Sliders),
-            ("Vocabulary", Icons.Letters),
+            ("AI Provider", Icons.Key),
+            ("Dictation", Icons.Microphone),
+            ("Processing", Icons.Sparkles),
+            ("Macros", Icons.Letters),
             ("History", Icons.Clock),
         };
         // Dock=Top controls dock from the last-added backwards, so add nav buttons
         // bottom-up; the header is added last and stays on top. _navButtons stays in
-        // page order (index 0 = Providers) so SelectPage's indexes line up.
+        // page order (index 0 = AI Provider) so SelectPage's indexes line up.
         for (int i = navItems.Length - 1; i >= 0; i--)
         {
             var index = i;
