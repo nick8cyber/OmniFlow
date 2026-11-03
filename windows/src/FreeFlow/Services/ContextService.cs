@@ -91,8 +91,12 @@ public static class ContextService
         {
             foreach (var quality in new[] { 50L, 25L, 12L })
             {
-                using var scaled = scale >= 1.0 ? bitmap : Scale(bitmap, scale);
-                var base64 = EncodeJpeg(scaled, quality);
+                // scale == 1.0 must NOT wrap bitmap in a using: the alias would be
+                // disposed at the end of the first quality iteration and every
+                // later encode would hit a disposed Bitmap (silent screenshot loss).
+                using var scaled = scale >= 1.0 ? null : Scale(bitmap, scale);
+                var target = scaled ?? bitmap;
+                var base64 = EncodeJpeg(target, quality);
                 if (base64.Length <= 500_000) return base64;
             }
         }

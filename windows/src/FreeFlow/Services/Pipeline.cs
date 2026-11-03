@@ -344,7 +344,14 @@ public sealed class Pipeline
                     Post(() => Cancelled?.Invoke());
                     return;
                 }
-                await RunProcessingAsync(wavPath, editIntent, settings, ct, contextTask ?? Task.FromResult(""), live);
+                // macOS-parity empty gate (ADR-0004): evaluate on the LOCAL
+                // recorder — Stop() just computed the metrics and the _recorder
+                // field is already nulled by End(); reading the field here made
+                // the gate dead code (always false).
+                var emptyCapture = recorder.LastRecordingDurationSeconds < 0.5
+                    || recorder.LastRecordingSpeechSeconds < 0.3;
+                await RunProcessingAsync(wavPath, editIntent, settings, ct,
+                    contextTask ?? Task.FromResult(""), live, emptyCapture);
             }
             catch (OperationCanceledException)
             {
@@ -383,22 +390,9 @@ public sealed class Pipeline
     public static string LastFailedRecordingPath => Path.Combine(
         SettingsStore.DirectoryPath, "last-failed.wav");
 
-    /// <summary>True when the capture holds no speech: shorter than 0.5 s
-    /// (accidental hotkey tap) or fewer than 0.3 s standing above its own
-    /// noise floor (thought about it and decided not to speak). Such a capture
-    /// must never reach a provider — the old path waited 20-40 s for an empty
-    /// answer or a rate-limit error the user could not cancel.</summary>
-    private bool IsEffectivelyEmptyRecording()
-    {
-        var recorder = _recorder;
-        if (recorder == null) return false;
-        return recorder.LastRecordingDurationSeconds < 0.5
-            || recorder.LastRecordingSpeechSeconds < 0.3;
-    }
-
     private async Task RunProcessingAsync(
         string wavPath, bool editIntent, AppSettings settings, CancellationToken ct,
-        Task<string> contextTask, LiveTranscriptionService? live)
+        Task<string> contextTask, LiveTranscriptionService? live, bool emptyCapture)
     {
         TranscriptionOutcome transcription;
         var transcriptionCompleted = false;
@@ -429,7 +423,7 @@ public sealed class Pipeline
                         ? "gemini-3.5-transcribe-live"
                         : settings.RealtimeStreamingModel);
             }
-            else if (IsEffectivelyEmptyRecording())
+            else if (emptyCapture)
             {
                 // Accidental tap or abandoned hold: finish locally, no provider
                 // round-trip (macOS parity — SpeechHeuristics gate). The empty
@@ -671,6 +665,13 @@ public sealed class Pipeline
         if (!File.Exists(path)) return;
         _ = Task.Run(async () =>
         {
+            // Occupy the pipeline for the whole retry: a fresh dictation starting
+            // mid-retry made paste ordering nondeterministic.
+            lock (_gate)
+            {
+                if (IsBusy) return;
+                _isProcessing = true;
+            }
             try
             {
                 Post(() => StatusChanged?.Invoke("Retrying last recording…"));
@@ -679,13 +680,19 @@ public sealed class Pipeline
                 if (raw.Length == 0) return;
                 _lastTranscript = raw;
                 Post(() => StatusChanged?.Invoke($"Retried with {transcription.Provider}"));
-                _paste.Paste(raw, pressEnterAfter: false, settings.PreserveClipboard,
+                var pasted = _paste.Paste(raw, pressEnterAfter: false, settings.PreserveClipboard,
                     settings.KeepInClipboardHistory);
-                File.Delete(path);
+                // Keep the file when the paste failed: "Paste last recording" can
+                // try again, and the transcript also survives via Paste Again.
+                if (pasted) File.Delete(path);
             }
             catch (Exception ex)
             {
                 Post(() => ErrorOccurred?.Invoke("Retry failed: " + ex.Message));
+            }
+            finally
+            {
+                lock (_gate) _isProcessing = false;
             }
         });
     }

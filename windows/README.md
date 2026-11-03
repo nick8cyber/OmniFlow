@@ -13,7 +13,7 @@ BidiGenerateContent WebSocket). Groq (whisper-large-v3) is the optional transcri
 the non-live Gemini `gemini-3.5-transcribe` is the built-in record-then-transcribe fallback.
 
 ```
-Hold Right Alt            →  open mic (pinned device, format ladder) → stream PCM 16 kHz mono
+Hold Caps Lock            →  open mic (pinned device, format ladder) → stream PCM 16 kHz mono
                              chunks over the Live WebSocket — interim transcript appears in
                              the overlay while speaking
 Release                   →  stream end signal → wait for the transcript to settle (adaptive:
@@ -52,7 +52,7 @@ The published exe is a single ~63 MB file (compression on, no symbols).
 1. Start `FreeFlow.exe`. First run shows setup: paste a **Gemini API key**
    ([aistudio.google.com/apikey](https://aistudio.google.com/apikey)); a **Groq API key**
    ([console.groq.com](https://console.groq.com)) is optional and enables the fallback path.
-2. **Hold the Right Alt key** to dictate — the interim transcript appears live in the overlay.
+2. **Hold the Caps Lock key** to dictate (the default hold key — rebindable in Settings → Dictation) — the interim transcript appears live in the overlay.
    Release → the text is pasted at the cursor. **Ctrl+Caps Lock** toggles hands-free dictation
    (press-release-press to stop). **Esc** cancels a session (toggle mode only).
 3. Settings → Dictation → Microphone: **pin the input device** (recommended — the Windows default
