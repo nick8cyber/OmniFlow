@@ -1,5 +1,7 @@
 # OmniFlow — Архитектура и логика приложения (спека 00)
 
+> «Почему так» — в каталоге ADR: [`docs/adr/`](../adr/README.md) и дереве решений [`decision-tree.md`](../adr/decision-tree.md); эта спека — «как устроено».
+
 Документ — полное поведенческое описание архитектуры OmniFlow (форк диктовки FreeFlow).
 Цель: по этому документу и `01-contracts.md` можно реализовать приложение 1-в-1 на Swift,
 не видя исходного кода. Все значения точные, «примерно» здесь не встречается.
@@ -94,12 +96,11 @@
 
 | Файл | Ответственность | ObservableObject-зависимости |
 |---|---|---|
-| `Sources/MenuBarView.swift` | `struct MenuBarView: View` — меню MenuBarExtra: версия, баннеры разрешений (screen recording/accessibility), статус, `Start/Stop Dictating`, последние 10 записей истории (prefix 10, фильтр по непустому тексту), кнопки Open Settings / Run Log / Check for Updates / Quit. | `@EnvironmentObject AppState`, `@ObservedObject UpdateManager.shared` |
-| `Sources/SettingsView.swift` (2850 строк) | Окно настроек 780×540. Корень `SettingsView` с сайдбаром по `SettingsTab`. Внутри: `GeneralSettingsView`, `PromptsSettingsView`, `VoiceMacrosSettingsView` (+`VoiceMacroEditorView`), `RunLogView` (+`RunLogEntryView`, `PipelineStepView`, `AudioPlayerView`, `AudioPlayerDelegate`, `FlowLayout`), `DebugSettingsView`, `ProviderSettingsFields`, `MicrophoneOptionRow`, `SettingsCard`, `SettingsSidebarRow`. | `@EnvironmentObject AppState` (+ `GitHubMetadataCache.shared` как `@StateObject`, `UpdateManager.shared` как `@ObservedObject` в General) |
-| `Sources/SetupView.swift` (1649 строк) | `struct SetupView: View` (`onComplete: () -> Void`) — визард первого запуска: приветствие, права (mic/accessibility/screen recording), провайдер и API-ключ (`SetupProviderSettingsSheet`), выбор шортката с тестовым прогоном (`SetupTestHotkeyHarness`), выбор стиля оверлея (`OverlayStylePreview`, `OverlayStyleOptionRow`, `HowToRow`, `InlineTranscribingDots`). Также `GitHubMetadataCache` (`ObservableObject`, звёзды/контрибьюторы репо: `GitHubRepoInfo`, `GitHubStarRecord`, `GitHubStarUser`, `GitHubContributor`). | `@EnvironmentObject AppState`, `@StateObject GitHubMetadataCache.shared`, `@StateObject SetupTestHotkeyHarness` |
+| `Sources/MenuBarView.swift` | `struct MenuBarView: View` — меню MenuBarExtra, только быстрые действия: баннеры разрешений (screen recording/accessibility), статус, `Start/Stop Dictating`, ошибки, Paste Last Recording, Paste Again с превью, History-меню (≤10 записей + Open History), Microphone-меню, `Settings…` ⌘,, Check for Updates, update-баннер, Quit ⌘Q. Настраиваемое (шорткаты, словарь, мастер) — в Settings. | `@EnvironmentObject AppState`, `@ObservedObject UpdateManager.shared` |
+| `Sources/Settings/*.swift` (по файлу на вкладку) + `Sources/UITheme.swift` | Окно настроек 780×540: корень `SettingsView` (сайдбар 188 по `SettingsTab`), вкладки `GeneralSettingsView`, `DictationSettingsView`, `AIProviderSettingsView`, `ProcessingSettingsView`, `VoiceMacrosSettingsView`, `RunLogView` (History; + `RunLogEntryView`, `PipelineStepView`, `AudioPlayerView`, `AudioPlayerDelegate`, `FlowLayout`), `DebugSettingsView`; общие поля провайдера (`ProviderSettingsFields` → `GeminiProviderFields` / `OpenAIProviderFields`) в `SettingsShared.swift`; UI-кит в `UITheme.swift` (`SettingsCard`, `FormRow`, `InfoBanner`, `CopyButton`, `EmptyStateView`, `FnAdviceBanner`, `ProviderCard( Pair)`, `OverlayPreviewCard`, `BrandHeader`). | `@EnvironmentObject AppState` (`UpdateManager.shared` в General) |
+| `Sources/SetupView.swift` | `struct SetupView: View` (`onComplete: () -> Void`) — визард из 7 шагов: Welcome → Choose Provider (`ProviderCardPair` + ключ + провайдер-зависимая валидация, `SetupProviderSettingsSheet`) → Permissions (3 разрешения на одном экране, поллинг 1 c) → Shortcuts (`DictationShortcutEditor`) → Personalize (Edit Mode, словарь, логин, экран оверлея) → Test (`SetupTestHotkeyHarness`) → All Set. | `@EnvironmentObject AppState`, `@StateObject SetupTestHotkeyHarness` |
 | `Sources/ModelDropdownView.swift` | `struct ModelDropdownView: View` — выпадающий список моделей LLM (из `ModelConfiguration.llmModels`) с поиском. | — |
-| `Sources/PipelineDebugPanelView.swift` | `struct PipelineDebugPanelView: View` — обёртка debug-панели прогона. | `@EnvironmentObject AppState` |
-| `Sources/PipelineDebugContentView.swift` | `struct PipelineDebugContentView: View` — содержимое debug-панели (промпты, скриншот, статусы прогона). | — |
+| `Sources/AIProvider.swift` | `enum AIProvider: String` (`gemini` / `openAICompatible`) — развилка провайдера: заголовки/иконки, `skipsLLMCleanup`, миграция из `transcription_model`, `adjustedBatchModel`/`adjustedLiveModel`, `geminiValidationBaseURL`. | Foundation |
 
 ### 1.9 Уведомления между слоями
 
@@ -707,9 +708,8 @@ Post-processing: `PostProcessingError` (см. 01-contracts) — 429 конвер
   нормализованной команде (первый по порядку). Совпадение → payload вставляется
   без LLM (`outcome .voiceMacro(command:)`, prompt `""`).
 - Debug: `toggleDebugOverlay()` / `startDebugOverlay()` (фейковый уровень синусом,
-  таймер 0.05 c) / `stopDebugOverlay()`; `toggleDebugPanel()` — открыть вкладку
-  `.runLog`; `showDebugUpdateAvailableOverlay()` — фейковый оверлей обновления
-  (версия `latestReleaseVersion` или `"9.9.9"`).
+  таймер 0.05 c) / `stopDebugOverlay()`; `showDebugUpdateAvailableOverlay()` —
+  фейковый оверлей обновления (версия `latestReleaseVersion` или `"9.9.9"`).
 - `retryTranscription(item:)` — повтор транскрипции записи истории: guard по
   `audioFileName` и отсутствию в `retryingItemIDs`; файл ищется в
   `audioStorageDirectory()`; контекст восстанавливается из записи

@@ -53,6 +53,10 @@ OmniFlow is a free Mac dictation app inspired by [Wispr Flow](https://wisprflow.
 
 Edit Mode lets you highlight existing text and transform it with a spoken instruction, like "make this shorter" or "turn this into bullets." Enable it in settings, then use your normal dictation shortcut on selected text, or choose Manual mode to require an extra modifier key.
 
+## Design Decisions
+
+Significant architecture and product decisions are recorded as short ADRs in [docs/adr/](docs/adr/) — from the cleanroom rewrite and the Gemini Live adaptive finish to the provider fork (no LLM cleanup for Gemini) and the 0.5.0 settings redesign. The decision tree in [docs/adr/decision-tree.md](docs/adr/decision-tree.md) maps every runtime branch to its ADR. Detailed behavior lives in the numbered specs under [docs/spec/](docs/spec/).
+
 ## Privacy
 
 There is no OmniFlow server, so OmniFlow does not store or retain your data. The only information that leaves your computer are API calls to your configured transcription and LLM provider.

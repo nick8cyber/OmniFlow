@@ -116,18 +116,28 @@ struct VoiceMacro: Codable, Identifiable, Equatable {
     var payload: String
 }
 
+/// Развилка провайдера (Sources/AIProvider.swift, спека 10 §1.1)
+enum AIProvider: String, CaseIterable, Identifiable {
+    case gemini, openAICompatible
+    var skipsLLMCleanup: Bool      // true только у .gemini
+    static func migrate(stored: String?, transcriptionModel: String) -> AIProvider
+    static func adjustedBatchModel(current: String, provider: AIProvider) -> String
+    static func adjustedLiveModel(current: String, provider: AIProvider) -> String
+}
+
 struct PrecomputedMacro {
     let original: VoiceMacro
     let normalizedCommand: String
 }
 
 enum SettingsTab: String, CaseIterable, Identifiable {
-    case general, prompts, macros, runLog, debug
+    case general, dictation, provider, processing, macros, runLog, debug
     var id: String { rawValue }
     static var visibleCases: [SettingsTab]   // без .debug вне dev-бандла
-    var title: String    // "General" | "Prompts" | "Voice Macros" | "Run Log" | "Debug"
-    var icon: String     // "gearshape" | "text.bubble" | "music.mic" |
-                         // "clock.arrow.circlepath" | "wrench.and.screwdriver"
+    var title: String    // "General" | "Dictation" | "AI Provider" | "Processing" |
+                         // "Macros" | "History" | "Debug"
+    var icon: String     // "gearshape" | "waveform" | "cpu" | "sparkles" |
+                         // "music.mic" | "clock.arrow.circlepath" | "wrench.and.screwdriver"
 }
 
 enum AppBuild {
@@ -252,7 +262,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
     // MARK: Debug
     func toggleDebugOverlay()
     @MainActor func showDebugUpdateAvailableOverlay()
-    func toggleDebugPanel()
 }
 ```
 
@@ -1157,25 +1166,23 @@ enum AppName {
 | `StampedMenuBarIcon` | enum | — | `static let templateImage: NSImage` |
 | `AppDelegate` | `NSObject, NSApplicationDelegate` | `AppState` | окна, lifecycle |
 | `MenuBarView` | `View` | `@EnvironmentObject AppState`, `@ObservedObject UpdateManager.shared` | меню |
-| `SettingsView` | `View` | `@EnvironmentObject AppState` | корень настроек; вкладки `SettingsTab` |
-| `SettingsCard<Content: View>` | `View` | — | карточка |
-| `ProviderSettingsFields` | `View` | `@EnvironmentObject AppState` | поля провайдера/ключей |
-| `DebugSettingsView` | `View` | `@EnvironmentObject AppState` | debug-вкладка |
-| `GeneralSettingsView` | `View` | `@EnvironmentObject AppState`, `@StateObject GitHubMetadataCache.shared`, `@ObservedObject UpdateManager.shared` | General |
-| `MicrophoneOptionRow` | `View` | — | строка выбора микрофона |
-| `PromptsSettingsView` | `View` | `@EnvironmentObject AppState` | промпты, output language, guard |
-| `RunLogView` / `RunLogEntryView` / `PipelineStepView<Content: View>` | `View` | `@EnvironmentObject AppState` (первые два) | история прогонов |
-| `AudioPlayerDelegate` | `NSObject, AVAudioPlayerDelegate` | — | проигрывание аудио записи |
-| `AudioPlayerView` | `View` | — | плеер аудио |
-| `FlowLayout` | `Layout` | — | перенос тегов |
+| `SettingsView` (Sources/Settings/SettingsWindow.swift) | `View` | `@EnvironmentObject AppState` | корень настроек; сайдбар + switch по `SettingsTab` |
+| `GeneralSettingsView` | `View` | `@EnvironmentObject AppState`, `@ObservedObject UpdateManager.shared` | General: App/Updates/Permissions/Sound/About |
+| `DictationSettingsView` | `View` | `@EnvironmentObject AppState` | Dictation: микрофон, шорткаты, оверлей, языки, Edit Mode, вставка |
+| `AIProviderSettingsView` | `View` | `@EnvironmentObject AppState` | развилка провайдера + ключ + условные поля |
+| `ProcessingSettingsView` | `View` | `@EnvironmentObject AppState` | cleanup/промпты/safety (OpenAI-compatible) + словарь + контекст |
 | `VoiceMacrosSettingsView` / `VoiceMacroEditorView` | `View` | `@EnvironmentObject AppState` | макросы |
-| `SetupView` | `View` | `@EnvironmentObject AppState`, `@StateObject GitHubMetadataCache.shared`, `@StateObject SetupTestHotkeyHarness`; `init(onComplete: @escaping () -> Void)` | визард |
+| `RunLogView` / `RunLogEntryView` / `PipelineStepView<Content: View>` | `View` | `@EnvironmentObject AppState` (первые два) | History (бывш. Run Log) |
+| `AudioPlayerDelegate` / `AudioPlayerView` / `FlowLayout` | — | — | плеер/чипы History |
+| `DebugSettingsView` | `View` | `@EnvironmentObject AppState` | debug-вкладка (dev only) |
+| `ProviderSettingsFields` → `GeminiProviderFields` / `OpenAIProviderFields` | `View` | `@EnvironmentObject AppState` | условные поля провайдера (Settings + Setup-шит) |
+| `MicrophoneOptionRow` / `PermissionStatusRow` / `CooldownWarningView` | `View` | — | общие строки/предупреждения |
+| `SettingsCard` / `FormRow` / `InfoBanner` / `CopyButton` / `EmptyStateView` / `FnAdviceBanner` / `IconChip` (UITheme.swift) | `View` | — | UI-кит |
+| `ProviderCard` / `ProviderCardPair` / `OverlayPreviewCard` / `BrandHeader` (UITheme.swift) | `View` | — | плитки провайдера, превью оверлея, шапка бренда |
+| `SetupView` | `View` | `@EnvironmentObject AppState`, `@StateObject SetupTestHotkeyHarness`; `init(onComplete: @escaping () -> Void)` | визард из 7 шагов |
 | `SetupProviderSettingsSheet` | `View` (private) | — | лист настроек провайдера |
-| `GitHubRepoInfo` / `GitHubStarRecord` / `GitHubStarUser` / `GitHubContributor` | `Decodable` | — | GitHub-метаданные |
-| `GitHubMetadataCache` | `ObservableObject` (class) | — | кэш звёзд/контрибьюторов |
-| `HowToRow` / `InlineTranscribingDots` / `OverlayStylePreview` / `OverlayStyleOptionRow` | `View` | — | шаги визарда |
+| `HowToRow` / `InlineTranscribingDots` | `View` | — | шаги визарда |
 | `ModelDropdownView` | `View` | — | выбор LLM-модели |
-| `PipelineDebugPanelView` / `PipelineDebugContentView` | `View` | `@EnvironmentObject AppState` (первый) | debug-панель прогона |
 | `DictationShortcutEditor` / `ShortcutRoleSection` | `View` | `@EnvironmentObject AppState` | редактор шорткатов |
 | `ShortcutPresetRow` / `ShortcutCaptureRow` | `View` (private) | — | строки пресетов/захвата |
 | `RecordingOverlayManager` | class (не ObservableObject) | `RecordingOverlayState` | публичный API ниже |
