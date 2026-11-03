@@ -18,6 +18,7 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 ### Changed
 
 - **Новая иконка приложения**: macOS-squircle с сине-фиолетовым градиентом и мотивом «волна речи → строки текста»; dev-сборка отличается янтарным градиентом. Генератор — `Resources/generate-app-icon.swift` (иконки регенерируются `make icon`).
+- **GitHub-промо убрано из UI**: шапка настроек и welcome-шаг мастера показывают только иконку/имя/версию; `GitHubMetadataCache` и связанные модели удалены.
 
 - **Настройки переработаны**: 5 вкладок → 7 (General, Dictation, AI Provider, Processing, Macros, History, Debug — dev), монолит `SettingsView.swift` (2154 строки) разбит на `Sources/Settings/*`, общий UI-кит `Sources/UITheme.swift` (карточки с иконочными чипами, строки формы, баннеры, CopyButton, пустые состояния). General сжат с 16 карточек до 6.
 - **Провайдер — первичная развилка**: явный выбор Google Gemini ⇄ Groq/OpenAI-compatible (`ai_provider`, миграция по transcription-модели). Поля, валидация ключа (Gemini — через OpenAI-совместимый эндпоинт Google) и вкладка Processing адаптируются; переключение провайдера согласует batch/live-модели. У Gemini отдельный LLM-постпроцессинг не запускается — он возвращает готовый текст (outcome `.builtInProviderCleanup`).

@@ -280,88 +280,28 @@ struct OverlayPreviewCard: View {
     private static let barHeights: [CGFloat] = [9, 14, 17, 12, 8]
 }
 
-/// Shared GitHub branding header: app icon, repo link, star count, avatars.
-/// Previously duplicated between Settings and Setup.
+/// Branding header: app icon, name, version.
 struct BrandHeader: View {
-    var showsContributors = false
-
-    @EnvironmentObject private var appState: AppState
-    @StateObject private var githubCache = GitHubMetadataCache.shared
-
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
     }
 
     var body: some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 14) {
-                Image(nsImage: NSApp.applicationIconImage)
-                    .resizable()
-                    .frame(width: 56, height: 56)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(AppName.displayName)
-                        .font(.system(size: 20, weight: .bold, design: .rounded))
-                    Text("v\(appVersion)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
+        HStack(spacing: 14) {
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .frame(width: 56, height: 56)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(AppName.displayName)
+                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                Text("v\(appVersion)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-            HStack(spacing: 10) {
-                AsyncImage(url: URL(string: "https://avatars.githubusercontent.com/u/992248")) { image in
-                    image.resizable().frame(width: 22, height: 22).clipShape(Circle())
-                } placeholder: {
-                    Circle().fill(Color.secondary.opacity(0.3)).frame(width: 22, height: 22)
-                }
-                Button("nick8cyber/OmniFlow") {
-                    if let url = URL(string: "https://github.com/nick8cyber/OmniFlow") {
-                        NSWorkspace.shared.open(url)
-                    }
-                }
-                .buttonStyle(.link)
-                .font(.system(.caption, design: .monospaced))
-                Spacer()
-                if let starCount = githubCache.starCount {
-                    HStack(spacing: 4) {
-                        Image(systemName: "star.fill").foregroundColor(.yellow)
-                        Text("\(starCount.formatted()) \(starCount == 1 ? "star" : "stars")")
-                            .font(.caption)
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(Capsule().fill(Color(nsColor: .controlBackgroundColor)))
-                }
-                Button("Star") {
-                    if let url = URL(string: "https://github.com/nick8cyber/OmniFlow") {
-                        NSWorkspace.shared.open(url)
-                    }
-                }
-                .font(.caption)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(Capsule().fill(Color.yellow.opacity(0.18)))
-            }
-            if showsContributors, !githubCache.recentContributors.isEmpty {
-                HStack(spacing: -6) {
-                    ForEach(githubCache.recentContributors.prefix(15)) { contributor in
-                        GitHubAvatarView(avatarURL: contributor.avatarUrl + "?s=44",
-                                         profileURL: contributor.htmlUrl)
-                    }
-                    Spacer()
-                }
-            } else if !showsContributors, !githubCache.recentStargazers.isEmpty {
-                HStack(spacing: -6) {
-                    ForEach(githubCache.recentStargazers, id: \.id) { stargazer in
-                        GitHubAvatarView(avatarURL: stargazer.user.avatarThumbnailUrl,
-                                         profileURL: stargazer.user.htmlUrl)
-                    }
-                    Spacer()
-                }
-            }
+            Spacer()
         }
         .padding(16)
         .background(RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial))
-        .onAppear { Task { await githubCache.fetchIfNeeded() } }
     }
 }

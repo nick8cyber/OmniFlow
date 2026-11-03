@@ -4,184 +4,6 @@ import AVFoundation
 import ApplicationServices
 import Combine
 
-// MARK: - GitHub metadata cache
-
-struct GitHubRepoInfo: Decodable {
-    let stargazersCount: Int
-
-    enum CodingKeys: String, CodingKey {
-        case stargazersCount = "stargazers_count"
-    }
-}
-
-struct GitHubStarUser: Decodable, Identifiable {
-    let id: Int
-    let login: String
-    let avatarUrl: String
-    let htmlUrl: String
-
-    enum CodingKeys: String, CodingKey {
-        case id
-        case login
-        case avatarUrl = "avatar_url"
-        case htmlUrl = "html_url"
-    }
-
-    var avatarThumbnailUrl: String {
-        "\(avatarUrl)?s=44"
-    }
-}
-
-struct GitHubStarRecord: Decodable, Identifiable {
-    let starredAt: String
-    let user: GitHubStarUser
-
-    var id: Int { user.id }
-
-    enum CodingKeys: String, CodingKey {
-        case starredAt = "starred_at"
-        case user
-    }
-}
-
-struct GitHubContributor: Decodable, Identifiable {
-    let id: Int
-    let login: String
-    let avatarUrl: String
-    let htmlUrl: String
-
-    enum CodingKeys: String, CodingKey {
-        case id
-        case login
-        case avatarUrl = "avatar_url"
-        case htmlUrl = "html_url"
-    }
-}
-
-@MainActor
-final class GitHubMetadataCache: ObservableObject {
-    static let shared = GitHubMetadataCache()
-
-    @Published var starCount: Int?
-    @Published var recentStargazers: [GitHubStarRecord] = []
-    @Published var recentContributors: [GitHubContributor] = []
-    @Published var isLoading = true
-
-    private var lastFetchedAt: Date?
-    private let cacheDuration: TimeInterval = 5 * 60
-
-    private init() {}
-
-    func fetchIfNeeded() async {
-        if let lastFetchedAt, Date().timeIntervalSince(lastFetchedAt) < cacheDuration {
-            return
-        }
-        isLoading = true
-        defer { isLoading = false }
-        var fetchedAnything = false
-
-        if let repoInfo = await fetchJSON(GitHubRepoInfo.self,
-                                          urlString: "https://api.github.com/repos/nick8cyber/OmniFlow") {
-            starCount = repoInfo.stargazersCount
-            fetchedAnything = true
-        }
-
-        if let repo = URL(string: "https://api.github.com/repos/nick8cyber/OmniFlow/stargazers"),
-           var components = URLComponents(url: repo, resolvingAgainstBaseURL: false) {
-            components.queryItems = [URLQueryItem(name: "per_page", value: "100"),
-                                     URLQueryItem(name: "page", value: "1")]
-            var request = URLRequest(url: components.url!)
-            request.setValue("application/vnd.github.v3.star+json", forHTTPHeaderField: "Accept")
-            if let (data, response) = try? await URLSession.shared.data(for: request),
-               let records = try? JSONDecoder().decode([GitHubStarRecord].self, from: data) {
-                var newestRecords = records
-                // Page 1 holds the oldest stargazers; the newest ones live on
-                // the last page, so follow the Link header when paginated.
-                let lastPage = Self.lastStargazersPage(from: response)
-                if lastPage > 1,
-                   let lastURL = Self.stargazersURL(repo: repo, page: lastPage) {
-                    var lastRequest = URLRequest(url: lastURL)
-                    lastRequest.setValue("application/vnd.github.v3.star+json",
-                                         forHTTPHeaderField: "Accept")
-                    if let (lastData, _) = try? await URLSession.shared.data(for: lastRequest),
-                       let lastRecords = try? JSONDecoder().decode([GitHubStarRecord].self, from: lastData),
-                       !lastRecords.isEmpty {
-                        newestRecords = lastRecords
-                    }
-                }
-                recentStargazers = Array(newestRecords.reversed().prefix(15))
-                fetchedAnything = true
-            }
-        }
-
-        if let contributors = await fetchJSON([GitHubContributor].self,
-                                              urlString: "https://api.github.com/repos/nick8cyber/OmniFlow/contributors?per_page=15") {
-            recentContributors = Array(contributors.prefix(15))
-            fetchedAnything = true
-        }
-
-        if fetchedAnything {
-            lastFetchedAt = Date()
-        }
-    }
-
-    /// GitHub paginates with a `Link` header; `rel="last"` points at the final
-    /// page (`...?per_page=100&page=N`). Returns 1 when the header is absent
-    /// (single page).
-    private static func lastStargazersPage(from response: URLResponse) -> Int {
-        guard let httpResponse = response as? HTTPURLResponse,
-              let link = httpResponse.value(forHTTPHeaderField: "Link") else { return 1 }
-        for segment in link.components(separatedBy: ",") {
-            guard segment.contains(#"rel="last""#),
-                  let range = segment.range(of: #"[?&]page=(\d+)"#, options: .regularExpression) else {
-                continue
-            }
-            let match = segment[range]
-            if let number = Int(match.drop(while: { $0 != "=" }).dropFirst()) {
-                return number
-            }
-        }
-        return 1
-    }
-
-    private static func stargazersURL(repo: URL, page: Int) -> URL? {
-        guard var components = URLComponents(url: repo, resolvingAgainstBaseURL: false) else { return nil }
-        components.queryItems = [URLQueryItem(name: "per_page", value: "100"),
-                                 URLQueryItem(name: "page", value: String(page))]
-        return components.url
-    }
-
-    private func fetchJSON<T: Decodable>(_ type: T.Type, urlString: String) async -> T? {
-        guard let url = URL(string: urlString) else { return nil }
-        guard let (data, _) = try? await URLSession.shared.data(for: URLRequest(url: url)) else { return nil }
-        return try? JSONDecoder().decode(T.self, from: data)
-    }
-}
-
-/// Standalone row view: extracting it from ForEach avoids a SwiftUI
-/// type-checker blowup with AsyncImage(url:) overload resolution.
-struct GitHubAvatarView: View {
-    let avatarURL: String
-    let profileURL: String
-
-    var body: some View {
-        AsyncImage(url: URL(string: avatarURL)) { image in
-            image.resizable()
-                .frame(width: 22, height: 22)
-                .clipShape(Circle())
-        } placeholder: {
-            Circle()
-                .fill(Color.secondary.opacity(0.3))
-                .frame(width: 22, height: 22)
-        }
-        .onTapGesture {
-            if let url = URL(string: profileURL) {
-                NSWorkspace.shared.open(url)
-            }
-        }
-    }
-}
-
 // MARK: - Setup helpers
 
 struct HowToRow: View {
@@ -235,7 +57,6 @@ struct SetupView: View {
     let onComplete: () -> Void
 
     @EnvironmentObject private var appState: AppState
-    @StateObject private var githubCache = GitHubMetadataCache.shared
     @StateObject private var testHotkeyHarness = SetupTestHotkeyHarness()
 
     @State private var currentStep: SetupStep = .welcome
@@ -331,7 +152,6 @@ struct SetupView: View {
         micPermissionGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
         accessibilityGranted = AXIsProcessTrusted()
         screenRecordingGranted = appState.hasScreenCapturePermission()
-        Task { await githubCache.fetchIfNeeded() }
     }
 
     // welcome
@@ -347,39 +167,6 @@ struct SetupView: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-            VStack(spacing: 8) {
-                HStack(spacing: 10) {
-                    AsyncImage(url: URL(string: "https://avatars.githubusercontent.com/u/992248")) { image in
-                        image.resizable().frame(width: 22, height: 22).clipShape(Circle())
-                    } placeholder: {
-                        Circle().fill(Color.secondary.opacity(0.3)).frame(width: 22, height: 22)
-                    }
-                    Button("nick8cyber/OmniFlow") {
-                        if let url = URL(string: "https://github.com/nick8cyber/OmniFlow") {
-                            NSWorkspace.shared.open(url)
-                        }
-                    }
-                    .buttonStyle(.link)
-                    .font(.system(.caption, design: .monospaced))
-                    Spacer()
-                    if let starCount = githubCache.starCount {
-                        HStack(spacing: 4) {
-                            Image(systemName: "star.fill").foregroundColor(.yellow)
-                            Text("\(starCount.formatted()) stars").font(.caption)
-                        }
-                    }
-                }
-                if !githubCache.recentContributors.isEmpty {
-                    HStack(spacing: -6) {
-                        ForEach(githubCache.recentContributors.prefix(15)) { contributor in
-                            GitHubAvatarView(avatarURL: contributor.avatarUrl + "?s=44",
-                                             profileURL: contributor.htmlUrl)
-                        }
-                        Spacer()
-                    }
-                }
-            }
-            .padding(12)
             .background(RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial))
             Spacer()
         }
