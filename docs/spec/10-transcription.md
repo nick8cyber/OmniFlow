@@ -17,6 +17,23 @@
 | OpenAI Realtime WebSocket | модель из настройки `realtime_streaming_model` | WebSocket `wss://.../v1/realtime?intent=transcription` |
 | Gemini Live WebSocket | `gemini-*-transcribe-live` | WebSocket BidiGenerateContent |
 
+### 1.1. Развилка провайдера (`ai_provider`)
+
+С 2026-11-03 провайдер — явная настройка `ai_provider` (`AIProvider`):
+`gemini` или `openAICompatible`. Первичная миграция: по `transcription_model`
+(содержит `gemini` → `gemini`). Влияет на:
+
+- **UI**: поля вкладки AI Provider и состав вкладки Processing
+  (cleanup/prompts/safety — только OpenAI-compatible);
+- **валидацию ключа**: Gemini валидируется через OpenAI-совместимый эндпоинт
+  Google `AIProvider.geminiValidationBaseURL`
+  (`https://generativelanguage.googleapis.com/v1beta/openai`, Bearer);
+- **пайплайн**: `AIProvider.skipsLLMCleanup` — у Gemini отдельный LLM-cleanup
+  не запускается (см. спеку 11 §11, outcome `.builtInProviderCleanup`);
+- **согласованность моделей при переключении**: `adjustedBatchModel` /
+  `adjustedLiveModel` не оставляют Gemini-модель на OpenAI-эндпоинте и наоборот
+  (live-модель при уходе с Gemini сбрасывается в пусто = «дефолт провайдера»).
+
 Аудио от `AudioRecorder`:
 - **Файл для батч-загрузки**: нормализованный WAV, PCM16 mono, 16 000 Гц (`recordingTargetFormat`).
 - **Realtime-поток**: PCM16 mono, **24 000 Гц** — `AudioRecorder.realtimeSampleRate = 24_000` (константа). Колбэк `onPCM16Samples: ((Data) -> Void)?` отдаёт чанки 16-bit little-endian PCM; внутри чанков объявленный sample rate — 24 кГц.

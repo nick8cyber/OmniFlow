@@ -552,7 +552,7 @@ split по { "\n", ",", ";" } → trim каждого → filter непусты�
 
 ## 11. Пайплайн в AppState (`processTranscript`)
 
-Вход: `rawTranscript` (после `parseTranscriptCommands` — выше по потоку вырезается опциональная команда press-enter), `intent`, `context`, сервис, `customVocabulary`, `customSystemPrompt`, `outputLanguage`, `preserveExactWording`.
+Вход: `rawTranscript` (после `parseTranscriptCommands` — выше по потоку вырезается опциональная команда press-enter), `intent`, `context`, сервис, `customVocabulary`, `customSystemPrompt`, `outputLanguage`, `preserveExactWording`, `skipsLLMCleanup` (= `aiProvider.skipsLLMCleanup`, т.е. провайдер Gemini).
 
 Строгий порядок (важно для 1-в-1 воспроизведения):
 
@@ -563,8 +563,10 @@ split по { "\n", ",", ";" } → trim каждого → filter непусты�
    - Совпадение — только точное равенство нормализованной диктовки и `normalize(macro.command)` по предвычисленному списку `precomputedMacros`.
    - Совпало → вернуть `(macro.payload, .voiceMacro(command: macro.command), "")` — LLM не вызывается.
    - `VoiceMacro { id: UUID, command: String, payload: String }`, хранится в UserDefaults как JSON.
-4. **Preserve exact wording** (`preserveExactWording`, UserDefaults `"preserve_exact_wording"`):
-   - Output Language пуст → `(trimmedRaw, .preservedExactWording, "")` — LLM полностью пропускается.
+4. **Preserve exact wording / built-in cleanup** (`preserveExactWording || skipsLLMCleanup`):
+   - Output Language пуст → `(trimmedRaw, .preservedExactWording | .builtInProviderCleanup, "")` — LLM полностью
+     пропускается. `.builtInProviderCleanup` возвращается, когда пропуск вызван
+     провайдером Gemini (он сам возвращает чистый текст), а не тумблером пользователя.
    - Output Language задан → `translateVerbatim(transcript:, targetLanguage:)` — иначе перевод бы молча потерялся; промпт сохраняет филлер/регистр/профанити 1:1.
    - Ошибка перевода → `(trimmedRaw, .preservedExactWordingTranslationFailedFallback, "")`.
 5. Обычный cleanup → `postProcess(...)`; успех → `(result.transcript, .postProcessingSucceeded)`; ошибка → `(trimmedRaw, .postProcessingFailedFallback, "")`.

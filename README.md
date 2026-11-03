@@ -40,12 +40,14 @@ OmniFlow is a free Mac dictation app inspired by [Wispr Flow](https://wisprflow.
 ## Features
 
 - **Custom shortcuts:** Customize both hold-to-talk and toggle dictation shortcuts. If your toggle shortcut extends your hold shortcut, you can start in hold mode and press the extra modifier keys to latch into tap mode without stopping the recording.
+- **Explicit provider choice:** pick **Google Gemini** or a **Groq / OpenAI-compatible** endpoint in Settings — the fields, key validation and Processing options adapt. With Gemini there is no separate cleanup step: the provider returns polished text directly.
 - **Context-aware cleanup:** OmniFlow can read nearby app context so names, terms, and phrases are spelled correctly when you dictate into email, terminals, docs, and other apps.
 - **Custom vocabulary:** Add names, jargon, and project-specific words that OmniFlow should preserve during cleanup.
 - **OpenAI-compatible providers:** Use Groq by default, or configure a custom model and API URL in settings.
 - **Gemini Live streaming:** `gemini-*-transcribe-live` streams the interim transcript into the overlay while you speak; the adaptive finish waits for the server-side tail refinement and falls back to file transcription when the live session produced nothing but the microphone heard speech. Transcription retries transient failures (3 attempts) before giving up.
 - **Paste Last Recording:** if transcription fails, the recording is kept — a menu-bar item re-transcribes and pastes it.
 - **Dictation overlay card:** a compact dark card (Windows-parity design) with an animated equalizer, the live transcript on two lines and the paste destination, top-center under the menu bar.
+- **Redesigned settings & onboarding:** a 7-tab settings window (General / Dictation / AI Provider / Processing / Macros / History), a trimmed quick-action menu-bar menu, and a 7-step setup wizard instead of 14.
 
 ## Edit Mode
 

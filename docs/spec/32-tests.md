@@ -396,6 +396,17 @@ context-модели; `ModelConfiguration` (пересечение со спек
 
 ---
 
+## 8d. AIProviderTests (спека 30 §6.3, развилка провайдера)
+
+- миграция `stored: nil` по `transcription_model` (gemini-подстрока → `.gemini`,
+  включая регистр; whisper/gpt → `.openAICompatible`); явные stored-значения
+  приоритетны;
+- `adjustedBatchModel`: переход whisper→Gemini ставит `gemini-3.5-transcribe`,
+  обратный — `whisper-large-v3`; свои модели не трогаются;
+- `adjustedLiveModel`: переход на Gemini ставит `gemini-3.5-transcribe-live`,
+  уход с Gemini сбрасывает в пусто (дефолт провайдера);
+- `skipsLLMCleanup`: true только у `.gemini`.
+
 ## 9. LLMCooldownManagerTests (спека cooldown)
 
 `run()` вызывает 4 теста. Чистая статическая функция
@@ -522,12 +533,13 @@ Translate (`translateVerbatim`, spec 11 §4.7):
 | `LiveAudioLevelNormalizerTests` | `Sources/LiveAudioLevelNormalizer.swift` | 20 §9 |
 | `PostProcessingFallbackTests` | `Sources/PostProcessingService.swift` (fallback-матрицы, transport-инъекция) | 11 §4.5–4.7, §6 |
 | `AppSettingsDefaultsTests` | `Sources/AppSettingsDefaults.swift` (читается AppState) | 00 §2.2 |
+| `AIProviderTests` | `Sources/AIProvider.swift` (миграция/подстройка моделей/скип cleanup) | 30 §6.3 |
 
 ---
 
 ## Чек-лист реализации тестов
 
-- [ ] TestMain `@main` вызывает 12 сьютов в фиксированном порядке, печатает `OmniFlowTests passed`
+- [ ] TestMain `@main` вызывает 13 сьютов в фиксированном порядке (AIProviderTests — первым), печатает `OmniFlowTests passed`
 - [ ] TestSupport: expect / expectEqual / expectApproximatelyEqual (accuracy 1e-6) на fatalError c #filePath/#line
 - [ ] Каждый сьют — enum со static run() и приватными test-функциями
 - [ ] SemanticVersion: 4 теста §2, включая каноническую цепочку prerelease
@@ -542,4 +554,5 @@ Translate (`translateVerbatim`, spec 11 §4.7):
 - [ ] LiveAudioLevelNormalizer: 13 констант, гейты (0/0.06), bump 0.12, атака 0.45 против релиза 0.12, ceiling-адаптация, reset (§10)
 - [ ] PostProcessingFallback: cleanup 429/empty/suspected → fallback/raw, 500 не ретраится, circuit breaker без запросов; command — без guard и без флага skippedCooldown; translate — ретрай без записи кулдаунов (§11)
 - [ ] AppSettingsDefaults: command mode `false`, manual modifier `option` (§12)
+- [ ] AIProvider: миграция по модели, batch/live-подстройка при смене провайдера, skipsLLMCleanup (§8d)
 - [ ] Тесты без сети и без AppKit-зависимостей; компоновка только с TEST_PRODUCTION_SOURCES (спека 33)

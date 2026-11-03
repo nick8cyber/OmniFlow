@@ -13,6 +13,19 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.5.0] - 2026-11-03
+
+### Changed
+
+- **Настройки переработаны**: 5 вкладок → 7 (General, Dictation, AI Provider, Processing, Macros, History, Debug — dev), монолит `SettingsView.swift` (2154 строки) разбит на `Sources/Settings/*`, общий UI-кит `Sources/UITheme.swift` (карточки с иконочными чипами, строки формы, баннеры, CopyButton, пустые состояния). General сжат с 16 карточек до 6.
+- **Провайдер — первичная развилка**: явный выбор Google Gemini ⇄ Groq/OpenAI-compatible (`ai_provider`, миграция по transcription-модели). Поля, валидация ключа (Gemini — через OpenAI-совместимый эндпоинт Google) и вкладка Processing адаптируются; переключение провайдера согласует batch/live-модели. У Gemini отдельный LLM-постпроцессинг не запускается — он возвращает готовый текст (outcome `.builtInProviderCleanup`).
+- **Меню-бар сокращён** с ~18 строк до 15 быстрых действий: убраны заголовок версии, три подменю пресетов шорткатов, «Paste Custom Word to Vocabulary» и «Re-run Setup…» (переехали в Settings: Dictation, Processing → Vocabulary «Add from Clipboard», General → App «Re-run…»); «Open Run Log» → «Open History», у Settings — ⌘,.
+- **Мастер установки сокращён** с 14 шагов до 7: Permissions — один экран, Shortcuts — один экран, Personalize объединяет Edit Mode/словарь/логин/экран оверлея; шаг 2 — выбор провайдера с валидацией ключа по провайдеру.
+
+### Removed
+
+- Мёртвая опция «Minimalist menu-bar overlay» (`use_compact_overlay` писался, но никогда не читался оверлеем; ключ стирается при старте) и осиротевшая Pipeline Debug-панель (`PipelineDebugPanelView`/`PipelineDebugContentView` не открывались никем).
+
 ## [0.4.0] - 2026-11-01
 
 ### Added

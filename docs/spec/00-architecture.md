@@ -212,7 +212,7 @@ extension Notification.Name {
 | `show_menu_bar_icon` (AppStorage) | Bool | `true` |
 | `force_http2_transcription` | — | **удаляется** в `init()` (устаревший) |
 | `overlay_display_id` | Int | `0` (читает RecordingOverlayManager) |
-| `use_compact_overlay` | Bool | `true` (читает RecordingOverlayManager) |
+| `ai_provider` | String rawValue `gemini` / `openAICompatible` | миграция из `transcription_model` (содержит `gemini` → `gemini`) |
 | `transcription_timeout_seconds`, `post_processing_timeout_seconds`, `context_request_timeout_seconds` | Double | `0` → используется 20 |
 | `keychain_migration_done` | String в `.settings` | маркер миграции Keychain→файл |
 | `updateLastCheckDate`, `updateAutoCheckEnabled`(деф. true), `updateSkippedVersion`, `updateLastPostTranscriptionReminderVersion`, `updateLastPostTranscriptionReminderDate`, `llm_cooldown_expiry_<model>` | см. UpdateManager / LLMCooldownManager | |
@@ -1109,10 +1109,8 @@ restore выполняется, если
   feedback: сообщение `min(420, max(180, count*6.8 + 60))`, без сообщения 92;
   на notched-экранах `max(notchWidth, ...)`; высота — `notchOverlap` (compact, дефолт)
   или `38 + notchOverlap` (legacy pill / error toast).
-- Winged layout (notch + `use_compact_overlay`, дефолт true): левое крыло waveform
-  (`CompactWaveformView` 5 баров), правое — stop-кнопка или красный X; фазы
-  initializing/transcribing в крыльях (`InitializingDotsView`,
-  `CompactProcessingIndicatorView` — waveform 1 c, затем спиннер).
+- Единственный режим — карточка 480×64 (winged/pill варианты удалены 2026-11-01;
+  мёртвый ключ `use_compact_overlay` стёрт из настроек 2026-11-03).
 - При transcribing ширина фиксируется (`lockedOverlayWidth`).
 - `showError(_:)`: обрезка до 90 символов + `"…"`, авто-скрытие 6 c c проверкой токена
   (`toastID`).
