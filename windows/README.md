@@ -175,6 +175,22 @@ first capture session after a device idle delivers zero buffers, `AudioRecorder`
 silently re-opens the capture ladder once. Verified with a local TCP stub (ProviderRetryTests)
 — no live provider calls.
 
+## Parity with the macOS app (OmniFlow 0.5.0)
+
+The macOS sibling ([nick8cyber/OmniFlow](https://github.com/nick8cyber/OmniFlow)) ships the
+same product decisions, recorded as ADRs in its
+[docs/adr/](https://github.com/nick8cyber/OmniFlow/blob/main/docs/adr/) catalog. Mapping:
+
+| Decision (macOS ADR) | Windows status |
+|---|---|
+| 0002 Live-first + adaptive finish | Implemented natively (adaptive settle: interim quiet 1.0 s, min 0.8 s, cap 6 s) |
+| 0003 Fail-fast rate limits | Implemented (transient-only retries, cooldowns own 429s) |
+| 0004 Empty-capture gate | Implemented (`SpeechHeuristics`, C# port of the Swift reference, shared test cases) |
+| 0005 Single overlay card | Implemented (`OverlayForm.cs` — the original this card was ported from) |
+| 0006 Provider fork | Semantics are native here: Google transcripts paste as-is, LLM cleanup is a Groq-only option (Settings → Behavior). No explicit Gemini/Groq switch — routing is model-driven, cleanup policy is per-provider. |
+| 0007 Settings IA redesign | macOS-only restructure; the WinForms settings pages (SettingsForm.Pages.cs) keep their own layout by design — platforms intentionally differ |
+| 0008 Branding | Windows uses the same FreeFlow-lineage icon for now; the new macOS icon is not applied to the tray app |
+
 ## Code map
 
 ```
