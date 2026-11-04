@@ -247,10 +247,22 @@ public sealed class Pipeline
             AudioChunkResampler? resampler = recorder.CapturesTargetFormat
                 ? null
                 : new AudioChunkResampler(recorder.CaptureFormat.SampleRate, recorder.CaptureFormat.Channels);
+            // Re-entrancy containment (macOS parity — crash fix 2026-11-05):
+            // a nested audio-chunk callback nests one level per streamed chunk
+            // and overflows the sender's stack. Nested emissions are dropped.
+            var forwarding = 0;
             recorder.AudioChunk += chunk =>
             {
-                var pcm16k = resampler?.Convert(chunk) ?? chunk;
-                if (pcm16k is { Length: > 0 }) live.AppendAudio(pcm16k);
+                if (Interlocked.Exchange(ref forwarding, 1) == 1) return;
+                try
+                {
+                    var pcm16k = resampler?.Convert(chunk) ?? chunk;
+                    if (pcm16k is { Length: > 0 }) live.AppendAudio(pcm16k);
+                }
+                finally
+                {
+                    Interlocked.Exchange(ref forwarding, 0);
+                }
             };
             _ = Task.Run(async () =>
             {
