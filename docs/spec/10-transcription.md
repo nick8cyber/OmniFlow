@@ -522,7 +522,7 @@ static func deriveWebSocketURL(baseURL: String, model: String, language: String?
    - `terminalError` установлен → resume failure с ним;
    - `closed` → resume failure `closedBeforeFinal`;
    - `readyCommittedTranscriptLocked()` вернула текст → `closed = true`, resume success, сокет закрывается `.normalClosure`.
-
+4. Иначе continuation сохраняется и взводится **финиш-таймаут 6 c** (`finalTimeoutTask`, 2026-11-04): протокол не гарантирует ответа — зависший, но открытый сокет без капа держал пайплайн до ручного Esc. По таймауту: `closed = true`, сокет `.normalClosure`, resume success с `""` → пайплайн уходит в батч-фолбэк по WAV. Гонка с реальным финалом безопасна: оба пути возобновляют continuation только если он ещё не nil под локом. `cancel()` закрывает сокет, тот же путь.
 **Финал-детекция через счётчики** — `readyCommittedTranscriptLocked()` (все проверки под локом):
 
 ```swift

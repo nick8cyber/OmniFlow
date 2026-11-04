@@ -781,7 +781,7 @@ stopAndTranscribe()
             → performAfterShortcutReleased (poll 25 мс × ≤24)
                 → pasteAtCursor (Cmd+V через CGEvent, UCKeyTranslate) [paste delay 0.03]
                 → [press-enter: pressEnterAfterPaste 0.08 → pressEnter (keyCode 36)]
-                → restoreClipboardIfNeeded (delay 1.0; changeCount/текст-совпадение)
+                → restoreClipboardIfNeeded (delay 1.0; строго changeCount == expected)
             → statusText "Pasted at cursor!" / "Copied to clipboard!" / "Nothing to transcribe" / "Pressed Enter"
             → overlayManager.dismiss | showFailureIndicator(2.5 c) | showUpdateAvailable(7 c)
             → scheduleReadyStatusReset(after: 3)
@@ -1025,9 +1025,10 @@ paste (`pressEnterAfterPaste`, 0.08 c). В историю/статус доба�
 
 `restoreClipboardIfNeeded(_ pendingRestore:)`: через `clipboardRestoreDelay` (1.0 c):
 restore выполняется, если
-`pasteboard.changeCount == expectedChangeCount` **или**
-`pasteboard.string(forType: .string) == writtenTranscript` (клипборд всё ещё держит ровно
-наш текст — фоновые app/Universal Clipboard могли поднять changeCount). Иначе — не
+`pasteboard.changeCount == expectedChangeCount` — строго (2026-11-04: прежняя
+вторая ветка «content == writtenTranscript» удалена — идентичная перезапись из
+Paste Again внутри окна восстановления совпадала с нашим текстом, и рестор
+затирал только что вставленное). Иначе — не
 трогаем (пользователь скопировал новое). Восстановление — `snapshot.restore(to:)`
 (clearContents + writeObjects).
 
@@ -1138,7 +1139,7 @@ restore выполняется, если
    очищается при init/deinit.
 6. Скрытие записи в истории буфера: 4 transient-маркера с пустыми строками; plain-режим
    при `keepDictationInClipboardHistory`; хвостовой пробел после `.`, `!`, `?`;
-   восстановление клипборда по правилу changeCount/текст §4.9.
+   восстановление клипборда по правилу changeCount §4.9.
 7. Regex press-enter совпадает с §4.7; Enter = virtualKey 36; V ищется через UCKeyTranslate
    с fallback 9; вставка ждёт отпускания шортката (25 мс × ≤24 + 0.03 с), Enter после
    paste — 0.08 с.

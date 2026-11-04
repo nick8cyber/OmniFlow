@@ -7,7 +7,7 @@
 ## Решение
 
 До любого обращения к провайдеру запись гейтится локально
-(`AppState.resolveRawTranscript`, шаг 0; Windows — `Pipeline.IsEffectivelyEmptyRecording`):
+(`AppState.resolveRawTranscript`, шаг 0; Windows — гейт в worker'е `End()` сразу после `recorder.Stop()`, по локальному рекордеру — фикс 2026-11-04, до него гейт читал уже обнулённое поле и был мёртвым кодом):
 
 - длительность < 0.5 c, ИЛИ
 - речь < 0.3 c (`SpeechHeuristics`: RMS-профиль, порог = max(шум×3, 0.003),
