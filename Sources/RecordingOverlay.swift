@@ -332,6 +332,18 @@ struct RecordingOverlayView: View {
     var onUpdateOverlayPressed: () -> Void = {}
 
     // Theme.cs palette.
+    // Transcript measurement for the FitTail port (Windows OverlayTextFit parity).
+    static let transcriptLineHeight = NSFont.systemFont(ofSize: 13).boundingRectForFont.height
+    static let transcriptMaxWidth: CGFloat = 350 // card 480 − lead padding − pill column (conservative)
+
+    static func measureHeight(_ text: String) -> CGFloat {
+        (text as NSString).boundingRect(
+            with: CGSize(width: transcriptMaxWidth, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: NSFont.systemFont(ofSize: 13)],
+            context: nil).height
+    }
+
     static let cardTop = Color(red: 34 / 255, green: 34 / 255, blue: 41 / 255)
     static let cardBottom = Color(red: 20 / 255, green: 20 / 255, blue: 25 / 255)
     static let cardBorder = Color(red: 64 / 255, green: 64 / 255, blue: 74 / 255)
@@ -418,14 +430,18 @@ private struct OverlayCard: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(RecordingOverlayView.textCaption)
             }
-            Text(primaryText)
+            Text(OverlayTextFitter.fitTail(
+                primaryText,
+                maxLines: 2,
+                lineHeight: RecordingOverlayView.transcriptLineHeight,
+                measure: { RecordingOverlayView.measureHeight($0) }))
                 .font(.system(size: 13))
                 .foregroundColor(isError ? RecordingOverlayView.danger : RecordingOverlayView.textBright)
-                // Two wrapped lines with the newest words visible: head-truncation
-                // keeps the tail (Windows text block is two lines, FitTail).
+                // Two wrapped lines with the newest words visible: the text is
+                // FitTail-trimmed from the start (Windows OverlayTextFit port).
+                // .lineLimit(2) stays only as a safety clamp.
                 .lineLimit(2)
                 .multilineTextAlignment(.leading)
-                .truncationMode(.head)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.leading, 12)

@@ -24,6 +24,7 @@ TEST_PRODUCTION_SOURCES = \
 	Sources/LiveAudioLevelNormalizer.swift \
 	Sources/LiveTranscriptAccumulator.swift \
 	Sources/ModelConfiguration.swift \
+	Sources/OverlayTextFit.swift \
 	Sources/PostProcessingService.swift \
 	Sources/SemanticVersion.swift \
 	Sources/SpeechHeuristics.swift \

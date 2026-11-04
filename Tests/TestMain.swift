@@ -1,6 +1,7 @@
 @main
 struct OmniFlowTests {
     static func main() {
+        OverlayTextFitterTests.run()
         AIProviderTests.run()
         AppContextServiceTests.run()
         AppSettingsDefaultsTests.run()
