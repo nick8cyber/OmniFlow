@@ -15,6 +15,14 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 
 ## [0.5.0] - 2026-11-03
 
+### Fixed (2026-11-04 audit follow-ups)
+
+- OpenAI realtime finish capped at 6 s (the non-Gemini realtime path could hang until manual Esc on a stalled-but-open socket; empty result falls back to file transcription).
+- Realtime service no longer leaks when a recording ends with no audio file.
+- History retry is coordinated with live dictation (guarded, cancellable) instead of racing it.
+- Paste Last Recording no longer violates Preserve Clipboard; clipboard restore ignores identical-content rewrites ("Paste Again" within the restore window pasted the wrong thing).
+- Re-entrancy guard on the microphone-permission completion (double start + realtime leak); atomic realtime-sample callback hand-off; same-model suspected-instruction cleanup path per spec 11 §6.5; six dead members removed; specs 00/10/32 actualized.
+
 ### Changed
 
 - **Новая иконка приложения**: macOS-squircle с сине-фиолетовым градиентом и мотивом «волна речи → строки текста»; dev-сборка отличается янтарным градиентом. Генератор — `Resources/generate-app-icon.swift` (иконки регенерируются `make icon`).
