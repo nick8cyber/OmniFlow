@@ -96,13 +96,13 @@ final class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputS
 
     var onRecordingReady: (() -> Void)?
     var onRecordingFailure: ((Error) -> Void)?
-    // Set on main, read on sampleBufferQueue: the lock makes the hand-off
-    // atomic (a torn read could drop the callback mid-teardown).
-    private let onPCM16SamplesLock = OSAllocatedUnfairLock<((Data) -> Void)?>(initialState: nil)
-    var onPCM16Samples: ((Data) -> Void)? {
-        get { onPCM16SamplesLock.withLock { $0 } }
-        set { onPCM16SamplesLock.withLock { $0 = newValue } }
-    }
+    // Set on main, read on sampleBufferQueue. Deliberately a plain stored
+    // property: the 2026-11-04 audit replaced it with a lock-atomic computed
+    // property and that binary crashed with a stack overflow — ~240 nested
+    // reabstraction thunks of this closure on the Live state lane (the
+    // getter/setter rethrow machinery appears in the crash backtrace). The
+    // torn read the audit feared is theoretical; the recursion was real.
+    var onPCM16Samples: ((Data) -> Void)?
 
     private static let sessionQueueKey = DispatchSpecificKey<UInt8>()
 
@@ -129,6 +129,7 @@ final class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputS
     /// seconds above the adaptive noise-floor threshold, and the floor itself.
     /// Powers the "decided not to speak" gate in AppState.
     private(set) var lastRecordingSpeechSeconds: Double = 0
+    private let pcm16ForwardingLock = OSAllocatedUnfairLock<Bool>(initialState: false)
     private let rmsSamplesLock = OSAllocatedUnfairLock<[Float]>(initialState: [])
     private static let rmsSampleCap = 4000
     private var loggedCaptureFormat = false
@@ -651,6 +652,16 @@ final class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputS
     // MARK: - Realtime branch (24 kHz Int16 stream)
 
     private func emitPCM16IfNeeded(_ pcmBuffer: AVAudioPCMBuffer) {
+        // Re-entrancy containment: a nested audio-chunk callback (each level
+        // nests on the Live state lane) overflowed the 520 KB GCD stack once
+        // the chain reached ~240 levels. Drop nested emits.
+        let isForwarding = pcm16ForwardingLock.withLock { state -> Bool in
+            if state { return false }
+            state = true
+            return true
+        }
+        guard isForwarding else { return }
+        defer { pcm16ForwardingLock.withLock { $0 = false } }
         let callback = onPCM16Samples
         guard callback != nil else { return }
         guard let sourceFormat = try? validatedPCMBufferFormat(
