@@ -38,6 +38,8 @@ public sealed partial class SettingsForm : Form
     private ComboBox _micDevice = null!;
     private CheckBox _realtimeStreaming = null!;
     private CheckBox _cleanupGroq = null!;
+    private CheckBox _instructionGuard = null!;
+    private CheckBox _launchAtLogin = null!;
     private CheckBox _includeScreenshot = null!;
     private CheckBox _preserveClipboard = null!;
     private CheckBox _keepHistory = null!;
@@ -238,6 +240,8 @@ public sealed partial class SettingsForm : Form
             _micDevice.SelectedItem is string mic && mic != MicDeviceResolver.SystemDefaultLabel ? mic : "";
         _settings.RealtimeStreamingEnabled = _realtimeStreaming.Checked;
         _settings.CleanupGroqTranscripts = _cleanupGroq.Checked;
+        _settings.InstructionGuardEnabled = _instructionGuard.Checked;
+        _settings.LaunchAtLogin = _launchAtLogin.Checked;
         _settings.IncludeScreenshot = _includeScreenshot.Checked;
         _settings.PreserveClipboard = _preserveClipboard.Checked;
         _settings.KeepHistory = _keepHistory.Checked;

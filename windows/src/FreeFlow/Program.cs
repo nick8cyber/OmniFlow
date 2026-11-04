@@ -34,6 +34,7 @@ internal static class Program
         }
 
         var settings = SettingsStore.Load();
+        SyncLaunchAtLogin(settings);
 
         if (forceSetup || !settings.HasCompletedSetup)
         {
@@ -46,6 +47,35 @@ internal static class Program
         var tray = new TrayContext(settings);
         if (showSettings) tray.ShowSettingsWindow();
         Application.Run(tray);
+    }
+
+    /// <summary>macOS Launch-at-login parity: keep the HKCU Run value in sync
+    /// with the saved setting on every start, so a moved exe never leaves a
+    /// stale path behind. Best-effort — failures never block startup.</summary>
+    private static void SyncLaunchAtLogin(AppSettings settings)
+    {
+        try
+        {
+            const string valueName = "FreeFlow";
+            const string runKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
+            using var runKey = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(runKeyPath, writable: true)
+                ?? Microsoft.Win32.Registry.CurrentUser.CreateSubKey(runKeyPath, writable: true);
+            if (runKey == null) return;
+            var exePath = Environment.ProcessPath ?? "";
+            var existing = runKey.GetValue(valueName) as string;
+            if (settings.LaunchAtLogin && !string.IsNullOrEmpty(exePath))
+            {
+                if (existing != $"\"{exePath}\"") runKey.SetValue(valueName, $"\"{exePath}\"");
+            }
+            else if (!settings.LaunchAtLogin && existing != null)
+            {
+                runKey.DeleteValue(valueName, false);
+            }
+        }
+        catch
+        {
+            // Best-effort: the settings toggle stays functional in-app.
+        }
     }
 
     private static bool HasFlag(string[] args, string flag) =>

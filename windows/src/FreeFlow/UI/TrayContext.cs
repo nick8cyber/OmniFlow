@@ -67,12 +67,18 @@ public sealed class TrayContext : ApplicationContext
             var target = _pipeline.TargetWindow;
             _overlay.AnchorScreen = target != IntPtr.Zero ? Screen.FromHandle(target) : null;
             _overlay.ShowRecording();
+            if (_settings.AlertSounds) System.Media.SystemSounds.Hand.Play(); // macOS "Tink" parity
         };
         _pipeline.LevelChanged += _overlay.UpdateLevel;
         _pipeline.PartialTranscript += _overlay.UpdateTranscript;
         _pipeline.TargetAppChanged += _overlay.UpdateTargetApp;
         _pipeline.StatusChanged += status => { _overlay.ShowStatus(status); UpdateTrayTooltip(); };
-        _pipeline.Finished += () => { _overlay.HideAfterDelay(); UpdateTrayTooltip(); };
+        _pipeline.Finished += () =>
+        {
+            _overlay.HideAfterDelay();
+            UpdateTrayTooltip();
+            if (_settings.AlertSounds) System.Media.SystemSounds.Asterisk.Play(); // macOS "Pop" parity
+        };
         _pipeline.Cancelled += () => { _overlay.HideAfterDelay(); UpdateTrayTooltip(); };
         _pipeline.ErrorOccurred += message =>
         {
@@ -80,7 +86,7 @@ public sealed class TrayContext : ApplicationContext
             UpdateTrayTooltip();
             _lastErrorItem.Text = "Last error: " + (message.Length > 90 ? message[..90] + "…" : message);
             _lastErrorItem.Visible = true;
-            if (_settings.AlertSounds) System.Media.SystemSounds.Hand.Play();
+            if (_settings.AlertSounds) System.Media.SystemSounds.Exclamation.Play(); // macOS "Basso" parity
         };
 
         // A throwing marshaled action surfaces here instead of WinForms' crash dialog.

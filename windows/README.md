@@ -188,7 +188,8 @@ same product decisions, recorded as ADRs in its
 | 0004 Empty-capture gate | Implemented (`SpeechHeuristics`, C# port of the Swift reference, shared test cases) |
 | 0005 Single overlay card | Implemented (`OverlayForm.cs` — the original this card was ported from) |
 | 0006 Provider fork | Implemented: Google transcripts paste as-is, LLM cleanup is a Groq-only option (Settings → Processing). No explicit Gemini/Groq switch — routing is model-driven, cleanup policy is per-provider. |
-| 0007 Settings IA redesign | Implemented (0.5.1): the settings sidebar now mirrors the macOS IA — AI Provider, Dictation, Processing, Macros, History; the old Behavior grab-bag page is dissolved into Dictation/Processing (SettingsForm.Pages.cs) |
+| 0007 Settings IA redesign | Implemented (0.5.1): the settings sidebar now mirrors the macOS IA — AI Provider, Dictation, Processing, Macros, History; the old Behavior grab-bag page is dissolved into Dictation/Processing (SettingsForm.Pages.cs). 0.5.2 adds the instruction-guard toggle (Processing → Cleanup policy) and Start-with-Windows (Dictation → Startup & hotkey options) for full parity |
+| 0003 Rate limits (supplementary parity fixes, 0.5.2) | Vocabulary capped at 1000 terms (mac parity); clipboard restore uses the strict clipboard sequence number (identical-content rewrites of "Paste Again" no longer get clobbered); distinct start/finish/error alert sounds (macOS Tink/Pop/Basso parity) |
 | 0008 Branding | Implemented (0.5.1): the "speech bars → text lines" motif on a blue→violet gradient is the exe icon (`app.ico`) and the runtime-drawn tray icon (recording state keeps the accent dot) |
 
 ## Code map

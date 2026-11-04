@@ -582,7 +582,11 @@ public sealed class Pipeline
                 var cleaned = TranscriptOutputSanitizer.PostProcessedTranscript(result.Text);
                 // The guard self-disables when an output language is set (Swift parity,
                 // TranscriptTextCore.swift:133) — pass the real language, not "".
-                var guardTripped = cleaned.Length > 0 &&
+                // macOS parity: the guard is a user-facing toggle (Settings →
+                // Processing → Cleanup policy). When off, the model output is
+                // trusted as-is.
+                var guardTripped = settings.InstructionGuardEnabled &&
+                    cleaned.Length > 0 &&
                     TranscriptOutputSanitizer.AppearsToHaveExecutedInstruction(
                         text, cleaned, settings.OutputLanguage);
                 if (guardTripped)

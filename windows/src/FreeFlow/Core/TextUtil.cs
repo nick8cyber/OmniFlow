@@ -50,7 +50,8 @@ public static class TextUtil
         {
             if (seen.Add(part)) result.Add(part);
         }
-        return result;
+        // macOS parity: the transcription vocabulary is capped at 1000 terms.
+        return result.Count > 1000 ? result.Take(1000).ToList() : result;
     }
 
     /// <summary>Final pasted text gets a trailing space when it ends with sentence punctuation.</summary>

@@ -69,6 +69,15 @@ public sealed class AppSettings
     // LLM cleanup applies to Groq-mode transcripts only (Google transcripts paste
     // as-is per user policy).
     public bool CleanupGroqTranscripts { get; set; } = true;
+
+    /// <summary>macOS parity (instructionExecutionGuardEnabled): when on, a model
+    /// output that looks like it answered the dictation is retried with the other
+    /// provider and otherwise replaced by the raw transcript.</summary>
+    public bool InstructionGuardEnabled { get; set; } = true;
+
+    /// <summary>macOS parity (Launch at login): HKCU Run-key registration, synced
+    /// on every start and on Save.</summary>
+    public bool LaunchAtLogin { get; set; } = false;
     public bool ContextEnabled { get; set; } = true;
     public bool IncludeScreenshot { get; set; } = false;
     public bool PreserveClipboard { get; set; } = true;

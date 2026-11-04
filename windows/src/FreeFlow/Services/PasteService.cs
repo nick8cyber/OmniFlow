@@ -80,6 +80,7 @@ public sealed class PasteService
             // The write silently lost the race with another clipboard writer.
             return false;
         }
+        var writtenSequence = Win32Clipboard.SequenceNumber();
 
         WaitForShortcutRelease();
 
@@ -102,8 +103,12 @@ public sealed class PasteService
                 Thread.Sleep(ClipboardRestoreDelayMs);
                 try
                 {
+                    // Strict sequence parity with the macOS changeCount fix: an
+                    // identical-content rewrite ("Paste Again" within the restore
+                    // window) must NOT count as ours — the restore would clobber it.
                     var (current, readOk) = ReadClipboardText();
-                    if (readOk && current == clipboardText)
+                    if (readOk && current == clipboardText &&
+                        Win32Clipboard.SequenceNumber() == writtenSequence)
                     {
                         if (previous.Items.Count > 0) Win32Clipboard.RestoreSnapshot(previous);
                         else Win32Clipboard.TryClear();
@@ -187,6 +192,14 @@ public sealed class PasteService
     private static class Win32Clipboard
     {
         private const uint CfUnicodeText = 13;
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern uint GetClipboardSequenceNumber();
+
+        /// <summary>macOS changeCount parity: a monotonic marker that changes on
+        /// every clipboard write, used to detect foreign writes during the
+        /// restore window.</summary>
+        public static uint SequenceNumber() => GetClipboardSequenceNumber();
 
         /// <summary>Formats stored as GDI/handle references, not global memory: their
         /// bytes cannot be round-tripped via GetClipboardData/GlobalLock.</summary>

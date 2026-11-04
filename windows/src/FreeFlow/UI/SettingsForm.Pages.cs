@@ -189,7 +189,7 @@ public sealed partial class SettingsForm
             "Click a field and press the desired combination. Esc, Delete, or Backspace unbinds the shortcut."), 0, 2);
         AddCard(stack, hotkeys);
 
-        var options = new Card("Hotkey options");
+        var options = new Card("Startup & hotkey options");
         _suppressKey = Grids.Check(
             "Suppress the bound key so it does nothing else (recommended for Caps Lock)",
             _settings.SuppressBoundKey);
@@ -197,6 +197,9 @@ public sealed partial class SettingsForm
         Grids.Span(options.Body, Theme.Caption(
             "Caps Lock is the default hold key (the Windows analog of the Mac Fn key). " +
             "Ctrl+Caps Lock toggles dictation; press-and-release then press again to stop."), 0, 2);
+        _launchAtLogin = Grids.Check(
+            "Start FreeFlow when you sign in to Windows", _settings.LaunchAtLogin);
+        Grids.Span(options.Body, _launchAtLogin, 2, 2);
         AddCard(stack, options);
 
         var microphone = new Card("Microphone");
@@ -230,6 +233,11 @@ public sealed partial class SettingsForm
             "Clean up Groq-mode transcripts with an LLM (Google transcripts always paste as-is)",
             _settings.CleanupGroqTranscripts);
         Grids.Span(cleanup.Body, _cleanupGroq, 4, 4);
+        _instructionGuard = Grids.Check(
+            "Prevent dictated prompts from being executed", _settings.InstructionGuardEnabled);
+        Grids.Span(cleanup.Body, _instructionGuard, 2, 4);
+        Grids.Span(cleanup.Body, Theme.Caption(
+            "If a cleanup result looks like it answered your dictation instead of cleaning it, FreeFlow retries with the other provider and falls back to the literal transcript."), 0, 4);
         _preserveExactWording = Grids.Check("Preserve exact wording (skip cleanup)", _settings.PreserveExactWording);
         Grids.Span(cleanup.Body, _preserveExactWording, 2, 2);
         _commandMode = Grids.Check(
