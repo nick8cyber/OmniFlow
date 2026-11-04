@@ -67,7 +67,7 @@ Settings live in `%APPDATA%\FreeFlow\settings.json`; API keys are DPAPI-encrypte
 
 **Save-on-failure:** when transcription fails, the recording is kept at
 `%APPDATA%\FreeFlow\last-failed.wav` and the tray menu gains a **Paste last recording** item
-that re-transcribes and pastes it (the file is deleted after a successful retry, so a stale
+that re-transcribes and pastes it (the file is deleted after a successful paste — a failed paste keeps the recording for another try — so a stale
 recording cannot be pasted twice by accident).
 
 ## Architecture
