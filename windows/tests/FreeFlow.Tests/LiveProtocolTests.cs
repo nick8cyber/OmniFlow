@@ -29,6 +29,9 @@ public class LiveProtocolTests
         var setup = doc.RootElement.GetProperty("setup");
         Assert.Equal("models/gemini-3.5-transcribe-live", setup.GetProperty("model").GetString());
         Assert.True(setup.TryGetProperty("inputAudioTranscription", out var transcription));
+        // macOS parity: mode is pinned to VERBATIM — SMART strips disfluencies
+        // and paraphrases, losing meaning and censoring profanity.
+        Assert.Equal("VERBATIM", transcription.GetProperty("mode").GetString());
         // languageCodes is a BCP-47 array; a "language" string field makes the
         // server never answer setupComplete (verified against the live service).
         Assert.Equal("ru", transcription.GetProperty("languageCodes")[0].GetString());
@@ -40,6 +43,7 @@ public class LiveProtocolTests
         var json = LiveTranscriptionService.BuildSetupMessage("models/gemini-3.5-transcribe-live", "");
         using var doc = JsonDocument.Parse(json);
         var setup = doc.RootElement.GetProperty("setup");
+        Assert.Equal("VERBATIM", setup.GetProperty("inputAudioTranscription").GetProperty("mode").GetString());
         Assert.False(setup.GetProperty("inputAudioTranscription").TryGetProperty("languageCodes", out _));
     }
 

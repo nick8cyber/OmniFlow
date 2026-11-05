@@ -63,7 +63,8 @@ public sealed class LiveTranscriptionService : IAsyncDisposable
 
     /// <summary>The setup message; inputAudioTranscription sits at setup level (verified).
     /// Language hints go in languageCodes (BCP-47 array) — a "language" string field
-    /// makes the server never answer setupComplete.</summary>
+    /// makes the server never answer setupComplete. mode=VERBATIM is pinned explicitly
+    /// (macOS parity): SMART strips disfluencies and paraphrases, losing meaning.</summary>
     public static string BuildSetupMessage(string model, string? language)
     {
         using var stream = new MemoryStream();
@@ -75,6 +76,7 @@ public sealed class LiveTranscriptionService : IAsyncDisposable
             writer.WriteString("model", model.StartsWith("models/", StringComparison.Ordinal) ? model : "models/" + model);
             writer.WritePropertyName("inputAudioTranscription");
             writer.WriteStartObject();
+            writer.WriteString("mode", "VERBATIM");
             if (!string.IsNullOrWhiteSpace(language))
             {
                 writer.WritePropertyName("languageCodes");

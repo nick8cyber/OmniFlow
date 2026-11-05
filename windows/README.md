@@ -22,9 +22,11 @@ Fallback (any Live error) →  the buffered WAV → gemini-3.5-transcribe :gener
                              → Groq whisper-large-v3 (if a Groq key is configured)
 ```
 
-Google transcripts always paste as-is: the transcribe models punctuate themselves, and LLM
-cleanup would only burn the tight free-tier generateContent quota (25 requests/day). LLM
-cleanup is an option for the Groq fallback mode only (Settings → Processing, default on).
+Google transcripts always paste as-is: the Live setup pins `mode: VERBATIM` (the
+batch fallback relies on the documented default), so every word is kept — no
+paraphrasing, no profanity censoring. LLM cleanup would only burn the tight
+free-tier generateContent quota (25 requests/day); it is an option for the Groq
+fallback mode only (Settings → Processing, default on).
 
 ## Build
 
