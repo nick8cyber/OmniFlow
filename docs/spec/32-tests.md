@@ -285,12 +285,12 @@ context-модели; `ModelConfiguration` (пересечение со спек
 2. **testGroqProviderURLIsReplacedWithGoogleHost** — Groq-URL и пустая строка
    подменяются на `defaultBaseURL`; явный Google-URL сохраняется;
    `endpoint` = `<base>/interactions`.
-3. **testRequestAsksForVerbatimModeWithInlineAudio** — тело запроса:
+3. **testRequestAsksForSmartModeWithInlineAudio** — тело запроса:
    `model`; `input` — ровно один элемент `{type: "audio", mime_type: "audio/wav",
-   data: <base64>}`; `generation_config.transcription_config.mode.type == "verbatim"`;
+   data: <base64>}`; `generation_config.transcription_config.mode.type == "smart"`;
    `custom_vocabulary == ["OmniFlow", "Groq"]`; `language_codes` отсутствует
-   (автодетект); отсутствуют `timestamp_granularities` и
-   `diarization_mode`.
+   (пиннинг языка ломает smart mode); отсутствуют `timestamp_granularities` и
+   `diarization_mode` (smart их не принимает).
 4. **testVocabularyIsSplitDeduplicatedAndCapped** —
    `"Kubernetes\nBigQuery; Groq , Groq"` → `["Kubernetes", "BigQuery", "Groq"]`
    (разделители `,\n;` и пробелы, дедуп); мусорная строка → `[]`;
@@ -549,8 +549,8 @@ Translate (`translateVerbatim`, spec 11 §4.7):
 - [ ] TranscriptTextCore: 9 тестов §4 — парсер JSON/fallback/invalid, подавление галлюцинаций по no_speech_prob, санитайзеры трёх режимов, instruction guard (5 кейсов), press-enter парсер (regex 00 §4.7, 9 кейсов)
 - [ ] ModelConfiguration: алиасы, стабильные конфиги (4096/low/none), целостность списков, stripThinkTags
 - [ ] AppContextService: summary = первые 2 предложения для Qwen, strip <think>, no-op для не-Qwen, отсутствие deprecated моделей, reasoning off
-- [ ] GeminiTranscription: роутинг, подмена Groq-URL, verbatim-тело, словарь (дедуп/кап 1000/omit пустого), парсер transcript, failureMessage с массив-обёрткой
-- [ ] GeminiLive: роутинг без пересечений, socketURL fallback + drop query, setup-фрейм (models/, VERBATIM, vocabulary), 24 kHz mime, классификация серверных фреймов + junk
+- [ ] GeminiTranscription: роутинг, подмена Groq-URL, smart-mode тело, словарь (дедуп/кап 1000/omit пустого), парсер transcript, failureMessage с массив-обёрткой
+- [ ] GeminiLive: роутинг без пересечений, socketURL fallback + drop query, setup-фрейм (models/, SMART, vocabulary), 24 kHz mime, классификация серверных фреймов + junk
 - [ ] LLMCooldownManager: дневной лимит приоритетен (179.56/true), durations, fallback 60 c, стабильный udKey, circuit breaker (effectivePrimary == nil при двух моделях в кулдауне), cooldown-skip возвращает raw transcript c `skippedCooldown == true`
 - [ ] TranscriptionService: пустой ключ → `.invalidKey` без сети; статусы 200/401/403 → valid/invalidKey/invalidKey; 429/5xx → `.unavailable` c friendly-текстом; unreachableMessage различает таймаут
 - [ ] LiveAudioLevelNormalizer: 13 констант, гейты (0/0.06), bump 0.12, атака 0.45 против релиза 0.12, ceiling-адаптация, reset (§10)

@@ -13,12 +13,6 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
-## [0.5.1] - 2026-11-06
-
-### Fixed
-
-- **Gemini перестаёт вырезать слова и цензурировать мат**: транскрипция Gemini (Live и батч) пиннится в `verbatim` вместо `smart` — SMART-режим вырезал «паразиты» и повторы, перефразировал и терял смысл. Все слова теперь доходят дословно; пост-LLM-обработка сознательно не добавляется (лишняя задержка), текст вставляется как услышан. Windows: то же в Live setup (батч и так работал на дефолтном verbatim).
-
 ## [0.5.0] - 2026-11-03
 
 ### Fixed (2026-11-04 audit follow-ups)

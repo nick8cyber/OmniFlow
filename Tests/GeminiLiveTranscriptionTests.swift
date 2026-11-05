@@ -4,7 +4,7 @@ enum GeminiLiveTranscriptionTests {
     static func run() {
         testOnlyLiveModelsAreRouted()
         testSocketURLIsDerivedFromAnyGeminiBase()
-        testSetupAsksForVerbatimModeAndVocabulary()
+        testSetupAsksForSmartModeAndVocabulary()
         testAudioFramesDeclareTheRealSampleRate()
         testServerFramesAreClassified()
         testInterimAndActivityFramesAreClassified()
@@ -100,7 +100,7 @@ enum GeminiLiveTranscriptionTests {
 
     // MARK: - 3
 
-    private static func testSetupAsksForVerbatimModeAndVocabulary() {
+    private static func testSetupAsksForSmartModeAndVocabulary() {
         let message = setupMessageOrCrash(model: "gemini-3.5-transcribe-live",
                                           customVocabulary: "OmniFlow\nGroq,OmniFlow")
         let setup = jsonOrCrash(message)["setup"] as? [String: Any]
@@ -114,8 +114,8 @@ enum GeminiLiveTranscriptionTests {
                     "response modalities must be TEXT")
 
         let inputAudioTranscription = setup["inputAudioTranscription"] as? [String: Any]
-        expectEqual(inputAudioTranscription?["mode"] as? String, "VERBATIM",
-                    "live verbatim mode is uppercase, unlike the batch API")
+        expectEqual(inputAudioTranscription?["mode"] as? String, "SMART",
+                    "live smart mode is uppercase, unlike the batch API")
         expectEqual(inputAudioTranscription?["custom_vocabulary"] as? [String], ["OmniFlow", "Groq"],
                     "custom vocabulary is deduplicated")
         expect(inputAudioTranscription?["languageCodes"] == nil,

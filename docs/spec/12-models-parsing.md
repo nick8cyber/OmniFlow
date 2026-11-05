@@ -96,8 +96,8 @@ public static let visionModels = [
 public static let transcriptionModels = [
     "whisper-large-v3",
     "whisper-large-v3-turbo",
-    // Свой ключ и provider URL в transcription overrides; режим verbatim
-    // отдаёт все слова как сказаны (мат и повторы включительно).
+    // Свой ключ и provider URL в transcription overrides; smart mode
+    // сам чистит текст, пост-обработке остаётся меньше работы.
     "gemini-3.5-transcribe"
 ]
 ```

@@ -2,9 +2,7 @@ import Foundation
 
 enum GeminiTranscription {
     static let defaultBaseURL = "https://generativelanguage.googleapis.com/v1beta"
-    // Verbatim keeps all words as spoken — SMART strips disfluencies and
-    // paraphrases, which loses meaning and censors profanity.
-    private static let verbatimMode = "verbatim"
+    private static let smartMode = "smart"
     private static let customVocabularyLimit = 1000
 
     // Batch Interactions API handles gemini-*transcribe* models except the *-live ones.
@@ -92,7 +90,7 @@ enum GeminiTranscription {
             ],
             generationConfig: GenerationConfig(
                 transcriptionConfig: TranscriptionConfig(
-                    mode: Mode(type: verbatimMode),
+                    mode: Mode(type: smartMode),
                     customVocabulary: terms.isEmpty ? nil : terms)))
         return try JSONEncoder().encode(request)
     }

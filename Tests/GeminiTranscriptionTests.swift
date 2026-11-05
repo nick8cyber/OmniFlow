@@ -4,7 +4,7 @@ enum GeminiTranscriptionTests {
     static func run() {
         testOnlyInteractionsCapableModelsAreRouted()
         testGroqProviderURLIsReplacedWithGoogleHost()
-        testRequestAsksForVerbatimModeWithInlineAudio()
+        testRequestAsksForSmartModeWithInlineAudio()
         testVocabularyIsSplitDeduplicatedAndCapped()
         testTranscriptIsReadFromModelOutput()
         testFailuresSurfaceGoogleMessage()
@@ -73,7 +73,7 @@ enum GeminiTranscriptionTests {
 
     // MARK: - 3
 
-    private static func testRequestAsksForVerbatimModeWithInlineAudio() {
+    private static func testRequestAsksForSmartModeWithInlineAudio() {
         let body = requestBodyOrCrash(model: "gemini-3.5-transcribe",
                                       audioData: Data([1, 2, 3]),
                                       mimeType: "audio/wav",
@@ -91,7 +91,7 @@ enum GeminiTranscriptionTests {
         let generationConfig = json["generation_config"] as? [String: Any]
         let transcriptionConfig = generationConfig?["transcription_config"] as? [String: Any]
         let mode = transcriptionConfig?["mode"] as? [String: Any]
-        expectEqual(mode?["type"] as? String, "verbatim", "verbatim mode type (lowercase)")
+        expectEqual(mode?["type"] as? String, "smart", "smart mode type (lowercase)")
         expectEqual(transcriptionConfig?["custom_vocabulary"] as? [String], ["OmniFlow", "Groq"],
                     "custom vocabulary terms")
 
