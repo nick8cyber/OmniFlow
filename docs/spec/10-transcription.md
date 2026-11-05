@@ -283,13 +283,13 @@ enum TranscriptionError: LocalizedError {
 
 ## 4. Батч Gemini — Interactions API (`GeminiTranscription`)
 
-enum-namespace без состояния. Основание: Gemini Transcribe не говорит на OpenAI-протоколе `/audio/transcriptions`; Interactions API аутентифицируется `x-goog-api-key`, аудио — inline base64. Smart mode встраивает очистку (fillers, пунктуация) в саму транскрипцию: один запрос вместо двух (Whisper + cleanup).
+enum-namespace без состояния. Основание: Gemini Transcribe не говорит на OpenAI-протоколе `/audio/transcriptions`; Interactions API аутентифицируется `x-goog-api-key`, аудио — inline base64. Режим `verbatim` (с 2026-11-06; раньше был `smart`): модель отдаёт ВСЕ слова как сказано — мат, повторы и огрехи распознавания сохраняются, смысл не перефразируется. Пост-LLM-cleanup отклонён пользователем (лишняя задержка), поэтому текст вставляется дословно.
 
 ### 4.1. Константы
 
 ```swift
 static let defaultBaseURL = "https://generativelanguage.googleapis.com/v1beta"
-private static let smartMode = "smart"                  // нижний регистр!
+private static let verbatimMode = "verbatim"            // нижний регистр!
 private static let customVocabularyLimit = 1000
 ```
 
@@ -355,7 +355,7 @@ static func endpoint(baseURL: URL) -> URL {
   "generation_config": {
     "transcription_config": {
       "mode": {
-        "type": "smart"
+        "type": "verbatim"
       },
       "custom_vocabulary": ["Kubernetes", "OmniFlow"]
     }
@@ -365,7 +365,7 @@ static func endpoint(baseURL: URL) -> URL {
 
 Жёсткие правила:
 - `custom_vocabulary` — массив строк `vocabularyTerms(from:)`; **если список пуст — поле не отправляется вообще** (`nil` → ключ отсутствует в JSON).
-- **`language_codes` НЕ передаются никогда.** Язык — всегда автодетект: пиннинг языка наблюдался как фактор, возвращающий smart mode к verbatim-выводу (отменяет очистку). Комментарий в коде фиксирует это как сознательное решение.
+- **`language_codes` НЕ передаются никогда.** Язык — всегда автодетект (батч; Live с 2026-11-05 передаёт `languageCodes` — §6.3).
 
 ### 4.6. `customVocabulary` — разбор и лимит
 
@@ -572,7 +572,7 @@ return finalText
 static let defaultBaseURL = "wss://generativelanguage.googleapis.com"
 private static let servicePath =
     "/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
-private static let smartMode = "SMART"   // ВЕРХНИЙ регистр — в отличие от Interactions API!
+private static let verbatimMode = "VERBATIM" // ВЕРХНИЙ регистр — в отличие от Interactions API!
 ```
 
 ```swift
@@ -608,7 +608,7 @@ static func setupMessage(model: String, customVocabulary: String) throws -> Stri
       "responseModalities": ["TEXT"]
     },
     "inputAudioTranscription": {
-      "mode": "SMART",
+      "mode": "VERBATIM",
       "custom_vocabulary": ["Kubernetes", "OmniFlow"],
       "languageCodes": ["ru"]
     }
@@ -617,7 +617,9 @@ static func setupMessage(model: String, customVocabulary: String) throws -> Stri
 ```
 
 - `model` — через `normalizedModelPath(_:)`: trim; префикс `models/` добавляется, если отсутствует (`models/gemini-...`).
-- `inputAudioTranscription.mode` = `"SMART"` (верхний регистр).
+- `inputAudioTranscription.mode` = `"VERBATIM"` (верхний регистр). Пиннинг с
+  2026-11-06: SMART вырезал слова и цензурировал мат — требование «дословно,
+  ничего не выбрасывать» (пост-обработка отклонена пользователем).
 - `custom_vocabulary` — `GeminiTranscription.vocabularyTerms(from:)` (те же split/dedup/лимит 1000); **пустой список — ключа нет**.
 - **`languageCodes` (2026-11-05, Windows-parity)**: когда задан Spoken language
   (`transcription_language`, напр. `"ru"`) — `inputAudioTranscription.languageCodes = [code]`
@@ -855,11 +857,11 @@ private static func resolveRawTranscript(
 - [ ] `friendlyHTTPMessage`: тексты 401/403/404/413/400/429/5xx/default — дословно из раздела 3.8.
 - [ ] Нормализация base URL: http/https, хост обязателен, `"/"`→`""`, срез хвостовых слэшей.
 - [ ] Gemini батч: `handlesModel` = `gemini-*` + содержит `transcribe` + не `-live`; не-Google хост → `https://generativelanguage.googleapis.com/v1beta`; endpoint `{base}/interactions`; auth `x-goog-api-key`.
-- [ ] Тело Interactions: snake_case `generation_config.transcription_config`, `mode.type = "smart"`, `input[].mime_type`, inline base64; `custom_vocabulary` только при непустом списке; `language_codes` никогда.
+- [ ] Тело Interactions: snake_case `generation_config.transcription_config`, `mode.type = "verbatim"`, `input[].mime_type`, inline base64; `custom_vocabulary` только при непустом списке; `language_codes` никогда.
 - [ ] `vocabularyTerms`: split по `\n , ;`, trim, dedup по lowercased, `prefix(1000)`.
 - [ ] Парсинг Interactions: сначала error-конверты ДВУХ форм (`{"error":{...}}` и `[{...}]`), затем `status == "completed"`, затем join `steps[type == nil || "model_output"].content[].text`, пусто → ошибка.
 - [ ] OpenAI Realtime: URL `ws(s)://host[/v1]/realtime?intent=transcription` (не дублировать `/v1`); `session.update` с `audio/pcm rate=24000`, `turn_detection: null`; `input_audio_buffer.append` (base64) и `.commit`; дельты/комплиты склеиваются в `finalText`, финал = commit отправлен + `partialText` пуст + `completed` после коммита; `error` → terminal; закрытие `.normalClosure`; сервер закрылся после completed → финал всё равно возвращается.
-- [ ] Gemini Live: `wss://generativelanguage.googleapis.com/ws/...BidiGenerateContent`; не-Google хост → дефолтный URL; `x-goog-api-key`; setup с `models/`-префиксом, `responseModalities: ["TEXT"]`, `inputAudioTranscription.mode = "SMART"`, опциональными `custom_vocabulary` и `languageCodes` (задан Spoken language); `realtimeInput.audio` с `audio/pcm;rate={sampleRate}` (24000 из `AudioRecorder.realtimeSampleRate`); конец — `audioStreamEnd: true`; закрытие `.goingAway`.
+- [ ] Gemini Live: `wss://generativelanguage.googleapis.com/ws/...BidiGenerateContent`; не-Google хост → дефолтный URL; `x-goog-api-key`; setup с `models/`-префиксом, `responseModalities: ["TEXT"]`, `inputAudioTranscription.mode = "VERBATIM"`, опциональными `custom_vocabulary` и `languageCodes` (задан Spoken language); `realtimeInput.audio` с `audio/pcm;rate={sampleRate}` (24000 из `AudioRecorder.realtimeSampleRate`); конец — `audioStreamEnd: true`; закрытие `.goingAway`.
 - [ ] Парсинг Live-фреймов: `error` → ошибка; `setupComplete` → флаг + арминг таймера тишины + дренаж буфера; `voiceActivity` → границы сегментов; `serverContent.inputTranscription.text` (финал, ЗАМЕНА) и `interimInputTranscription.text` (замена сегмента, пустой = сброс сегмента); `modelTurn` игнорируется; `turnComplete || generationComplete` → resume ТОЛЬКО при `streamEnded` (иначе игнор — это конец оборота, не сессии; `closed` из-за него не ставить).
 - [ ] `LiveTranscriptAccumulator`: interim и inputTranscription оба ЗАМЕНЯЮТ открытый сегмент (финал-уточнение не дублирует интерим), START/END коммят сегменты, пустые не коммятся, `finalText()` включает открытый хвост; `modelTurn` не потребляется.
 - [ ] Adaptive finish: minWait 0.8 с / settle 1.0 с / потолок 6.0 с / поллинг 0.08 с; тишина → resume success с `""`; поллинг идёт на `stateQueue` и бездействует после чужого resume.

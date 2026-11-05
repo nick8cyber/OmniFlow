@@ -93,9 +93,9 @@ Then your response would be ONLY the cleaned up text, so here your response is O
 
 Google's Gemini transcription models are available alongside the Whisper
 options. They are not OpenAI-compatible, so OmniFlow talks to Google directly
-rather than through the provider URL. Both transcribe in smart mode, which
-removes filler words and false starts and repairs punctuation as part of
-transcription, and both accept your custom vocabulary as recognition biasing.
+rather than through the provider URL. Both transcribe in verbatim mode, which
+keeps every word as spoken — filler words, repetitions, and profanity included —
+and both accept your custom vocabulary as recognition biasing.
 
 There are two models, and the difference that matters for daily dictation is
 quota, not quality:
@@ -122,14 +122,14 @@ To use the live model, open settings and:
 To use the batch model on its own, set the transcription model to
 `gemini-3.5-transcribe` and leave realtime streaming off.
 
-Because the transcript arrives already cleaned, you can turn on **preserve exact
-wording** to skip the separate cleanup model entirely and get a one-call
-dictation. Leave it off if you still want the cleanup pass to adapt the text to
-the app you are dictating into.
+The transcript is verbatim by design: Gemini pastes every word you said instead
+of paraphrasing or censoring. Spelling and misrecognitions stay as transcribed —
+an extra cleanup call was deliberately rejected to keep dictation single-call
+and fast.
 
-One limit is worth knowing: the language is auto-detected rather than pinned,
-because pinning a language drops both models out of smart mode. The
-transcription-language setting therefore has no effect on the Gemini paths.
+One limit is worth knowing: the batch model auto-detects the language rather
+than pinning it. The transcription-language setting therefore has no effect on
+the Gemini batch path (the live path does send a language hint).
 
 ## Using a Local Model
 
