@@ -23,6 +23,12 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - Paste Last Recording no longer violates Preserve Clipboard; clipboard restore ignores identical-content rewrites ("Paste Again" within the restore window pasted the wrong thing).
 - Re-entrancy guard on the microphone-permission completion (double start + realtime leak); atomic realtime-sample callback hand-off; same-model suspected-instruction cleanup path per spec 11 §6.5; six dead members removed; specs 00/10/32 actualized.
 
+### Fixed (2026-11-05)
+
+- **Crash during dictation**: stack overflow of the Gemini Live state lane — the audio-chunk callback nested one level per streamed chunk and the 520 KB GCD thread blew up after ~240 chunks. The callback property is back to a plain stored property and nested chunk emissions are dropped.
+- **Stale two-line transcript while speaking**: the overlay now ports the Windows `OverlayTextFit.FitTail` — the visible two lines always show the newest words (SwiftUI head-truncation rendered stale lines).
+- **Spoken language in Live**: the setup frame now carries `inputAudioTranscription.languageCodes = ["ru"]` (Windows wire parity) — the session no longer mis-guesses the language in its opening seconds when a Spoken language is set.
+
 ### Changed
 
 - **Новая иконка приложения**: macOS-squircle с сине-фиолетовым градиентом и мотивом «волна речи → строки текста»; dev-сборка отличается янтарным градиентом. Генератор — `Resources/generate-app-icon.swift` (иконки регенерируются `make icon`).
