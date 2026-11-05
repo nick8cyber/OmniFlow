@@ -609,7 +609,8 @@ static func setupMessage(model: String, customVocabulary: String) throws -> Stri
     },
     "inputAudioTranscription": {
       "mode": "SMART",
-      "custom_vocabulary": ["Kubernetes", "OmniFlow"]
+      "custom_vocabulary": ["Kubernetes", "OmniFlow"],
+      "languageCodes": ["ru"]
     }
   }
 }
@@ -618,7 +619,10 @@ static func setupMessage(model: String, customVocabulary: String) throws -> Stri
 - `model` — через `normalizedModelPath(_:)`: trim; префикс `models/` добавляется, если отсутствует (`models/gemini-...`).
 - `inputAudioTranscription.mode` = `"SMART"` (верхний регистр).
 - `custom_vocabulary` — `GeminiTranscription.vocabularyTerms(from:)` (те же split/dedup/лимит 1000); **пустой список — ключа нет**.
-- Язык НЕ передаётся — автодетект, как в батче (пиннинг выводит из smart mode).
+- **`languageCodes` (2026-11-05, Windows-parity)**: когда задан Spoken language
+  (`transcription_language`, напр. `"ru"`) — `inputAudioTranscription.languageCodes = [code]`
+  (ровно как в вин-версии; строковое поле `language` запрещено — сервер не отвечает
+  setupComplete). Пусто/«Auto-detect» — ключа нет, автодетект.
 - Ключевая нотация camelCase в setup (`generationConfig`, `responseModalities`, `inputAudioTranscription`, `realtimeInput`, `audioStreamEnd`), но `custom_vocabulary` — snake_case.
 
 ### 6.4. Аудио и конец потока
@@ -855,7 +859,7 @@ private static func resolveRawTranscript(
 - [ ] `vocabularyTerms`: split по `\n , ;`, trim, dedup по lowercased, `prefix(1000)`.
 - [ ] Парсинг Interactions: сначала error-конверты ДВУХ форм (`{"error":{...}}` и `[{...}]`), затем `status == "completed"`, затем join `steps[type == nil || "model_output"].content[].text`, пусто → ошибка.
 - [ ] OpenAI Realtime: URL `ws(s)://host[/v1]/realtime?intent=transcription` (не дублировать `/v1`); `session.update` с `audio/pcm rate=24000`, `turn_detection: null`; `input_audio_buffer.append` (base64) и `.commit`; дельты/комплиты склеиваются в `finalText`, финал = commit отправлен + `partialText` пуст + `completed` после коммита; `error` → terminal; закрытие `.normalClosure`; сервер закрылся после completed → финал всё равно возвращается.
-- [ ] Gemini Live: `wss://generativelanguage.googleapis.com/ws/...BidiGenerateContent`; не-Google хост → дефолтный URL; `x-goog-api-key`; setup с `models/`-префиксом, `responseModalities: ["TEXT"]`, `inputAudioTranscription.mode = "SMART"`, опциональным `custom_vocabulary`; `realtimeInput.audio` с `audio/pcm;rate={sampleRate}` (24000 из `AudioRecorder.realtimeSampleRate`); конец — `audioStreamEnd: true`; закрытие `.goingAway`.
+- [ ] Gemini Live: `wss://generativelanguage.googleapis.com/ws/...BidiGenerateContent`; не-Google хост → дефолтный URL; `x-goog-api-key`; setup с `models/`-префиксом, `responseModalities: ["TEXT"]`, `inputAudioTranscription.mode = "SMART"`, опциональными `custom_vocabulary` и `languageCodes` (задан Spoken language); `realtimeInput.audio` с `audio/pcm;rate={sampleRate}` (24000 из `AudioRecorder.realtimeSampleRate`); конец — `audioStreamEnd: true`; закрытие `.goingAway`.
 - [ ] Парсинг Live-фреймов: `error` → ошибка; `setupComplete` → флаг + арминг таймера тишины + дренаж буфера; `voiceActivity` → границы сегментов; `serverContent.inputTranscription.text` (финал, ЗАМЕНА) и `interimInputTranscription.text` (замена сегмента, пустой = сброс сегмента); `modelTurn` игнорируется; `turnComplete || generationComplete` → resume ТОЛЬКО при `streamEnded` (иначе игнор — это конец оборота, не сессии; `closed` из-за него не ставить).
 - [ ] `LiveTranscriptAccumulator`: interim и inputTranscription оба ЗАМЕНЯЮТ открытый сегмент (финал-уточнение не дублирует интерим), START/END коммят сегменты, пустые не коммятся, `finalText()` включает открытый хвост; `modelTurn` не потребляется.
 - [ ] Adaptive finish: minWait 0.8 с / settle 1.0 с / потолок 6.0 с / поллинг 0.08 с; тишина → resume success с `""`; поллинг идёт на `stateQueue` и бездействует после чужого resume.

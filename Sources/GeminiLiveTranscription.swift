@@ -45,11 +45,18 @@ enum GeminiLiveTranscription {
         return components.url
     }
 
-    static func setupMessage(model: String, customVocabulary: String) throws -> String {
+    static func setupMessage(model: String, customVocabulary: String,
+                             languageCodes: [String]? = nil) throws -> String {
         let terms = GeminiTranscription.vocabularyTerms(from: customVocabulary)
         var inputAudioTranscription: [String: Any] = ["mode": smartMode]
         if !terms.isEmpty {
             inputAudioTranscription["custom_vocabulary"] = terms
+        }
+        // Spoken-language hint, Windows-parity wire format: `languageCodes` INSIDE
+        // inputAudioTranscription (a `language` string field makes the server
+        // never answer setupComplete). Empty/nil = server-side auto-detection.
+        if let languageCodes, !languageCodes.isEmpty {
+            inputAudioTranscription["languageCodes"] = languageCodes
         }
         let message: [String: Any] = [
             "setup": [

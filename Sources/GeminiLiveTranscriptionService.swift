@@ -8,6 +8,9 @@ final class GeminiLiveTranscriptionService: RealtimeTranscriptBackend {
         let model: String
         let customVocabulary: String
         let sampleRate: Int
+        /// Spoken-language hint (`ru`…) sent as `languageCodes` in the setup
+        /// frame; nil/empty = server-side auto-detection (Windows parity).
+        var language: String? = nil
     }
 
     var onPartialUpdate: ((String) -> Void)?
@@ -62,7 +65,8 @@ final class GeminiLiveTranscriptionService: RealtimeTranscriptBackend {
         }
         webSocketTask.resume()
         let setup = try GeminiLiveTranscription.setupMessage(model: config.model,
-                                                             customVocabulary: config.customVocabulary)
+                                                             customVocabulary: config.customVocabulary,
+                                                             languageCodes: config.language.map { [$0] })
         webSocketTask.send(.string(setup)) { error in
             if let error = error {
                 os_log(.error, log: Self.liveLog,

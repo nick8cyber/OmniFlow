@@ -28,10 +28,12 @@ enum GeminiLiveTranscriptionTests {
 
     private static func setupMessageOrCrash(model: String,
                                             customVocabulary: String,
+                                            languageCodes: [String]? = nil,
                                             file: StaticString = #filePath,
                                             line: UInt = #line) -> String {
         do {
-            return try GeminiLiveTranscription.setupMessage(model: model, customVocabulary: customVocabulary)
+            return try GeminiLiveTranscription.setupMessage(model: model, customVocabulary: customVocabulary,
+                                                            languageCodes: languageCodes)
         } catch {
             fatalError("\(file):\(line): setupMessage unexpectedly threw \(error)")
         }
@@ -116,8 +118,15 @@ enum GeminiLiveTranscriptionTests {
                     "live smart mode is uppercase, unlike the batch API")
         expectEqual(inputAudioTranscription?["custom_vocabulary"] as? [String], ["OmniFlow", "Groq"],
                     "custom vocabulary is deduplicated")
-        expect(inputAudioTranscription?["language_codes"] == nil,
-               "language is auto-detected: language_codes must not be sent")
+        expect(inputAudioTranscription?["languageCodes"] == nil,
+               "no spoken language set: languageCodes must not be sent (auto-detect)")
+
+        let hinted = jsonOrCrash(setupMessageOrCrash(model: "gemini-3.5-transcribe-live",
+                                                     customVocabulary: "",
+                                                     languageCodes: ["ru"]))["setup"] as? [String: Any]
+        let hintedAudio = hinted?["inputAudioTranscription"] as? [String: Any]
+        expectEqual(hintedAudio?["languageCodes"] as? [String], ["ru"],
+                    "the spoken-language hint is Windows-parity languageCodes inside inputAudioTranscription")
 
         let namespaced = setupMessageOrCrash(model: "models/gemini-3.5-transcribe-live",
                                              customVocabulary: "OmniFlow")

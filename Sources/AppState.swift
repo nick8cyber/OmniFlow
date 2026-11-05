@@ -1991,7 +1991,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 apiKey: resolvedTranscriptionAPIKey,
                 model: model,
                 customVocabulary: customVocabulary,
-                sampleRate: AudioRecorder.realtimeSampleRate)
+                sampleRate: AudioRecorder.realtimeSampleRate,
+                language: resolvedTranscriptionLanguage)
             start(realtimeService: GeminiLiveTranscriptionService(config: configuration))
         } else if GeminiTranscription.handlesModel(transcriptionModel) {
             // OpenAI realtime sockets cannot authenticate with a Gemini key: skip streaming.
