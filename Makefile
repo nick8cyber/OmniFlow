@@ -18,6 +18,7 @@ TEST_PRODUCTION_SOURCES = \
 	Sources/AppName.swift \
 	Sources/AppSettingsDefaults.swift \
 	Sources/GeminiLiveTranscription.swift \
+	Sources/GeminiLiveTranscriptionService.swift \
 	Sources/GeminiTranscription.swift \
 	Sources/LLMAPITransport.swift \
 	Sources/LLMCooldownManager.swift \
@@ -27,6 +28,8 @@ TEST_PRODUCTION_SOURCES = \
 	Sources/OverlayTextFit.swift \
 	Sources/PasteGate.swift \
 	Sources/PostProcessingService.swift \
+	Sources/RealtimeTranscriptBackend.swift \
+	Sources/RealtimeTranscriptionService.swift \
 	Sources/SemanticVersion.swift \
 	Sources/SpeechHeuristics.swift \
 	Sources/TranscriptTextCore.swift \

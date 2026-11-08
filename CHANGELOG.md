@@ -23,6 +23,10 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - Paste Again не срабатывает в живой сессии; хвостовой пробел после `.!?` — настройка (Settings → Dictation → Pasting & Audio).
 - Paste-цепочка логируется (os_log, категория `Paste`): решение гейта, факты нажатий, исход рестора буфера — без текста транскрипта.
 
+### Tests
+
+- Realtime-сервисы вошли в тест-таргет (`GeminiLiveTranscriptionService`, `RealtimeTranscriptionService` + протокол); адаптивный финиш Live извлечён в чистую функцию `shouldFinishLiveTranscript` и покрыт 7 сьютами (`LiveFinishDecisionTests`) — минимальная задержка, settle по тишине, абсолютный кап 6 с, включительные границы.
+
 ## [0.5.0] - 2026-11-03
 
 ### Fixed (2026-11-04 audit follow-ups)

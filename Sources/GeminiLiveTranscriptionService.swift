@@ -153,11 +153,13 @@ final class GeminiLiveTranscriptionService: RealtimeTranscriptBackend {
             let now = CFAbsoluteTimeGetCurrent()
             let sinceStop = now - self.streamEndedAt
             let sinceLast = now - self.lastInterimAt
-            let timedOut = sinceStop >= Self.finishTimeout
-            guard timedOut || (sinceStop >= Self.finishMinWait && sinceLast >= Self.finishSettle) else {
+            let decision = Self.shouldFinishLiveTranscript(sinceStop: sinceStop,
+                                                           sinceLastInterim: sinceLast)
+            guard decision.finish else {
                 self.scheduleAdaptiveFinishCheck()
                 return
             }
+            let timedOut = decision.timedOut
             self.finalContinuation = nil
             self.closed = true
             if timedOut {
@@ -171,6 +173,16 @@ final class GeminiLiveTranscriptionService: RealtimeTranscriptBackend {
             }
             pending.resume(returning: self.accumulator.finalText())
         }
+    }
+
+    /// Pure finish decision, extracted so the adaptive-finish contract is
+    /// unit-testable without a socket: finish when the absolute timeout hit, or
+    /// when both the minimum post-stop wait AND the interim quiet time passed.
+    static func shouldFinishLiveTranscript(sinceStop: TimeInterval,
+                                           sinceLastInterim: TimeInterval) -> (finish: Bool, timedOut: Bool) {
+        if sinceStop >= finishTimeout { return (true, true) }
+        if sinceStop >= finishMinWait && sinceLastInterim >= finishSettle { return (true, false) }
+        return (false, false)
     }
 
     /// Sends one audio chunk (call on stateQueue): wraps into a message and
