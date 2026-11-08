@@ -140,9 +140,14 @@ public sealed class LiveTranscriptionService : IAsyncDisposable
         {
             lock (_pendingGate)
             {
-                if (_pendingChunks.Count < 200) _pendingChunks.Add(pcm); // ~10 s cap
+                if (!SetupCompleted)
+                {
+                    if (_pendingChunks.Count < 200) _pendingChunks.Add(pcm); // ~10 s cap
+                    return;
+                }
+                // Setup completed between the outer check and the lock: fall
+                // through and send directly, in order behind the flushed buffer.
             }
-            return;
         }
         _outgoing.Writer.TryWrite(BuildAudioMessage(pcm));
     }
@@ -168,17 +173,6 @@ public sealed class LiveTranscriptionService : IAsyncDisposable
         }
     }
 
-    private void FlushPendingChunks()
-    {
-        byte[][] chunks;
-        lock (_pendingGate)
-        {
-            chunks = _pendingChunks.ToArray();
-            _pendingChunks.Clear();
-        }
-        foreach (var chunk in chunks) _outgoing.Writer.TryWrite(BuildAudioMessage(chunk));
-    }
-
     /// <summary>
     /// Stops the audio stream and waits for the final transcript. Verified against
     /// the live service (2026-10-26): transcribe-live keeps refining for up to ~3.2 s
@@ -190,7 +184,19 @@ public sealed class LiveTranscriptionService : IAsyncDisposable
     {
         _audioStopped = true;
         _audioStoppedUtc = DateTime.UtcNow;
-        _outgoing.Writer.TryWrite("{\"realtimeInput\":{\"audioStreamEnd\":true}}");
+        // R3 fix: the end marker used to go through the DropOldest channel — under
+        // backpressure it could be silently dropped and the finish logic would wait
+        // out the full timeout for a refinement that was never triggered. Drain the
+        // queued chunks first, then send the marker directly: audio is stopped, so
+        // the sender loop is parked on WaitToReadAsync and cannot interleave.
+        var drainDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(2);
+        while (_outgoing.Reader.Count > 0 && DateTime.UtcNow < drainDeadline)
+            await Task.Delay(10, ct);
+        if (_ws is { State: WebSocketState.Open })
+        {
+            try { await SendTextAsync("{\"realtimeInput\":{\"audioStreamEnd\":true}}", _ws, ct); }
+            catch (Exception) { /* the WAV fallback still covers the session */ }
+        }
         var deadline = DateTime.UtcNow + timeout;
         while (DateTime.UtcNow < deadline && _terminalError == null && _ws is { State: WebSocketState.Open })
         {
@@ -260,9 +266,17 @@ public sealed class LiveTranscriptionService : IAsyncDisposable
             var root = doc.RootElement;
             if (root.TryGetProperty("setupComplete", out _))
             {
-                _setupCompletedUtc = DateTime.UtcNow;
+                // R2 fix: the completion flag must be published AFTER the buffer is
+                // flushed, both under the same lock — otherwise a live chunk from the
+                // audio callback could overtake buffered ones (garbled first words),
+                // or slip into the now-abandoned buffer after the flush (lost tail).
+                lock (_pendingGate)
+                {
+                    foreach (var chunk in _pendingChunks) _outgoing.Writer.TryWrite(BuildAudioMessage(chunk));
+                    _pendingChunks.Clear();
+                    _setupCompletedUtc = DateTime.UtcNow;
+                }
                 _lastInterimUtc = DateTime.UtcNow; // arm the settle timer from setup
-                FlushPendingChunks();
                 return;
             }
             if (root.TryGetProperty("error", out var error))

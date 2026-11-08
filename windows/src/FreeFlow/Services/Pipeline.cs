@@ -132,10 +132,18 @@ public sealed class Pipeline
             _live = null;
         }
         if (recorder == null && cts == null && live == null) return;
-        try { recorder?.Cancel(); recorder?.Dispose(); } catch (Exception) { }
-        try { cts?.Cancel(); } catch (Exception) { }
-        _ = live?.DisposeAsync();
-        Post(() => Cancelled?.Invoke());
+        // R4: the teardown is blocking NAudio I/O, and this may be called directly
+        // from the WH_KEYBOARD_LL hook thread (Escape) — a stall here freezes ALL
+        // keyboard input system-wide. State is flipped synchronously above; the
+        // physical teardown runs on a worker.
+        Task.Run(() =>
+        {
+            try { recorder?.Cancel(); recorder?.Dispose(); } catch (Exception) { }
+            try { cts?.Cancel(); } catch (Exception) { }
+            _ = live?.DisposeAsync();
+            SystemAudioMute.RestoreAfterDictation();
+            Post(() => Cancelled?.Invoke());
+        });
     }
 
     public void PasteAgain(AppSettings settings) => PasteAgain(settings, IntPtr.Zero);
@@ -284,6 +292,10 @@ public sealed class Pipeline
             return;
         }
 
+        // macOS "Mute audio when dictation starts" parity (opt-in): silence the
+        // default render endpoint for the session; restored at session end/cancel.
+        if (settings.MuteSystemAudioDuringDictation) SystemAudioMute.MuteForDictation();
+
         // Remember the paste destination: if focus moves elsewhere mid-dictation
         // (a stray click), the paste is restored to the window dictation started in.
         // The tracker's window is preferred: sessions started from the tray menu
@@ -392,6 +404,7 @@ public sealed class Pipeline
                 recorder.Dispose();
                 _ = live?.DisposeAsync();
                 cts.Dispose();
+                SystemAudioMute.RestoreAfterDictation();
                 Post(() => Finished?.Invoke());
             }
         });

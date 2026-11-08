@@ -104,6 +104,10 @@ public sealed class AppSettings
     // --- Misc ---
     public bool HasCompletedSetup { get; set; } = false;
 
+    // --- Sound (macOS parity: "Mute audio when dictation starts" + volume) ---
+    public bool MuteSystemAudioDuringDictation { get; set; } = false;
+    public float SoundVolume { get; set; } = 1f;
+
     /// <summary>
     /// Spoken (transcription) language options — macOS parity, 30 entries.
     /// TranscriptionLanguage stores the ISO code (Whisper/Gemini language fields need it).
@@ -212,9 +216,25 @@ public static class SettingsStore
             }
             catch (Exception)
             {
-                // A corrupt settings file must not take the app down; start fresh.
+                // S4: a corrupt settings file must not take the app down — but it must
+                // not vanish silently either: quarantine the raw bytes for diagnosis,
+                // then start fresh.
+                TryQuarantineCorruptFile();
                 return new AppSettings();
             }
+        }
+    }
+
+    private static void TryQuarantineCorruptFile()
+    {
+        try
+        {
+            if (!File.Exists(FilePath)) return;
+            File.Copy(FilePath, FilePath + ".bad", overwrite: true);
+        }
+        catch (Exception)
+        {
+            // Quarantine is best-effort; starting with defaults is the priority.
         }
     }
 

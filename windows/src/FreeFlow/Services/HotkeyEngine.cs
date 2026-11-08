@@ -30,7 +30,6 @@ public sealed class HotkeyEngine : IDisposable
     public HotkeyBinding Toggle { get; set; }
     public HotkeyBinding PasteAgain { get; set; }
     public bool SuppressBoundKey { get; set; } = true;
-    public bool Enabled { get; set; } = true;
 
     /// <summary>
     /// While a hotkey capture box owns focus the engine switches to capture mode
@@ -48,7 +47,6 @@ public sealed class HotkeyEngine : IDisposable
     public event Action? HoldActivated;
     public event Action? HoldDeactivated;
     public event Action? ToggleActivated;
-    public event Action? ToggleDeactivated;
     public event Action? PasteAgainTriggered;
 
     /// <summary>Return true when the escape was consumed (cancels a session) — the hook
@@ -128,6 +126,17 @@ public sealed class HotkeyEngine : IDisposable
         _hook = IntPtr.Zero;
     }
 
+    /// <summary>R1 self-heal: Windows silently removes a WH_KEYBOARD_LL hook whose
+    /// callback stalls (secure desktop, timeout) — the handle stays non-zero, the
+    /// event counter freezes and every hotkey is dead until restart. Recreates the
+    /// hook; must be called on the thread that installed it (its message pump
+    /// services the callback), never during a live session or capture mode.</summary>
+    public void ForceReinstall()
+    {
+        Uninstall();
+        Install();
+    }
+
     /// <summary>True while any enabled shortcut's physical keys are still held down.</summary>
     public bool IsAnyShortcutInputHeld()
     {
@@ -157,7 +166,6 @@ public sealed class HotkeyEngine : IDisposable
         if (nCode >= 0)
         {
             Interlocked.Increment(ref _eventsSeen);
-            if (Enabled)
             {
             var info = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
             var injected = (info.flags & LlkhfInjected) != 0;
@@ -390,7 +398,6 @@ public sealed class HotkeyEngine : IDisposable
         if (!toggleActive && _toggleActive)
         {
             _toggleActive = false;
-            ToggleDeactivated?.Invoke();
         }
         if (!holdActive && _holdActive)
         {
@@ -484,7 +491,4 @@ public sealed class HotkeyEngine : IDisposable
 
     [DllImport("user32.dll")]
     private static extern short GetAsyncKeyState(int vKey);
-
-    [DllImport("user32.dll")]
-    private static extern short GetKeyState(int vKey);
 }

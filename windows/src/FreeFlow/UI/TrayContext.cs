@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 using FreeFlow.Core;
 using FreeFlow.Services;
 using WinFormsTimer = System.Windows.Forms.Timer;
@@ -67,7 +68,7 @@ public sealed class TrayContext : ApplicationContext
             var target = _pipeline.TargetWindow;
             _overlay.AnchorScreen = target != IntPtr.Zero ? Screen.FromHandle(target) : null;
             _overlay.ShowRecording();
-            if (_settings.AlertSounds) System.Media.SystemSounds.Hand.Play(); // macOS "Tink" parity
+            if (_settings.AlertSounds) AlertPlayer.Play("SystemHand", _settings.SoundVolume); // macOS "Tink" parity
         };
         _pipeline.LevelChanged += _overlay.UpdateLevel;
         _pipeline.PartialTranscript += _overlay.UpdateTranscript;
@@ -77,7 +78,7 @@ public sealed class TrayContext : ApplicationContext
         {
             _overlay.HideAfterDelay();
             UpdateTrayTooltip();
-            if (_settings.AlertSounds) System.Media.SystemSounds.Asterisk.Play(); // macOS "Pop" parity
+            if (_settings.AlertSounds) AlertPlayer.Play("SystemAsterisk", _settings.SoundVolume); // macOS "Pop" parity
         };
         _pipeline.Cancelled += () => { _overlay.HideAfterDelay(); UpdateTrayTooltip(); };
         _pipeline.ErrorOccurred += message =>
@@ -86,14 +87,14 @@ public sealed class TrayContext : ApplicationContext
             UpdateTrayTooltip();
             _lastErrorItem.Text = "Last error: " + (message.Length > 90 ? message[..90] + "…" : message);
             _lastErrorItem.Visible = true;
-            if (_settings.AlertSounds) System.Media.SystemSounds.Exclamation.Play(); // macOS "Basso" parity
+            if (_settings.AlertSounds) AlertPlayer.Play("SystemExclamation", _settings.SoundVolume); // macOS "Basso" parity
         };
 
         // A throwing marshaled action surfaces here instead of WinForms' crash dialog.
         Application.ThreadException += (_, e) =>
         {
             _overlay.ShowError("Internal error: " + e.Exception.Message);
-            if (_settings.AlertSounds) System.Media.SystemSounds.Hand.Play();
+            if (_settings.AlertSounds) AlertPlayer.Play("SystemHand", _settings.SoundVolume);
         };
 
         _tray = new NotifyIcon
@@ -121,13 +122,36 @@ public sealed class TrayContext : ApplicationContext
         var statePath = Path.Combine(SettingsStore.DirectoryPath, "hookstate.json");
         var healthTimer = new WinFormsTimer { Interval = 2000 };
         var lastEvents = 0L;
+        var lastInputTick = 0u;
+        var staleChecks = 0;
         healthTimer.Tick += (_, _) =>
         {
             if (!_hotkeys.Installed) _hotkeys.Install();
             var installed = _hotkeys.Installed;
             var events = _hotkeys.EventsSeen;
             var moving = events != lastEvents;
+            // R1 self-heal: Windows silently removes a WH_KEYBOARD_LL hook whose
+            // callback stalls (secure desktop, timeout) — the handle stays non-zero,
+            // the counter freezes and every hotkey is dead until restart. A frozen
+            // counter while GetLastInputInfo proves fresh user input means the hook
+            // is gone: recreate it here (the hook is serviced by this message pump).
+            // Skipped while a session or capture mode is live — a mid-session
+            // reinstall could strand a swallowed key.
+            var inputTick = LastInputTick();
+            if (!moving && inputTick != lastInputTick && !_pipeline.IsBusy && !_hotkeys.CaptureMode)
+            {
+                if (++staleChecks >= 3)
+                {
+                    staleChecks = 0;
+                    _hotkeys.ForceReinstall();
+                }
+            }
+            else
+            {
+                staleChecks = 0;
+            }
             lastEvents = events;
+            lastInputTick = inputTick;
             _tray.Text = installed
                 ? $"FreeFlow | hook {(moving ? "ok" : "idle")} ({events})"
                 : "FreeFlow | HOTKEYS UNAVAILABLE";
@@ -145,6 +169,22 @@ public sealed class TrayContext : ApplicationContext
     {
         // Icons are cached per state inside AppIcon (shared with the forms) — never disposed here.
         _tray.Icon = AppIcon.Create(recording);
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct LASTINPUTINFO
+    {
+        public uint cbSize;
+        public uint dwTime;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool GetLastInputInfo(ref LASTINPUTINFO plii);
+
+    private static uint LastInputTick()
+    {
+        var info = new LASTINPUTINFO { cbSize = (uint)Marshal.SizeOf<LASTINPUTINFO>() };
+        return GetLastInputInfo(ref info) ? info.dwTime : 0;
     }
 
     private void ApplyHotkeySettings()
@@ -190,6 +230,11 @@ public sealed class TrayContext : ApplicationContext
         menu.Items.Add(_lastErrorItem);
 
         menu.Items.Add(new ToolStripSeparator());
+        var checkUpdates = new ToolStripMenuItem("Check for Updates…");
+        checkUpdates.Click += (_, _) => _ = RunUpdateCheckAsync();
+        menu.Items.Add(checkUpdates);
+
+        menu.Items.Add(new ToolStripSeparator());
         var settingsItem = new ToolStripMenuItem("Settings…");
         settingsItem.Font = new Font(settingsItem.Font, FontStyle.Bold);
         settingsItem.Click += (_, _) => ShowSettings();
@@ -216,6 +261,53 @@ public sealed class TrayContext : ApplicationContext
     /// <summary>Opens (or activates) the settings window; also used by the --settings launch flag.</summary>
     public void ShowSettingsWindow() => ShowSettings();
 
+    private async Task RunUpdateCheckAsync()
+    {
+        try
+        {
+            SetTrayIcon(false);
+            UpdateTrayTooltip();
+            _tray.Text = "FreeFlow — checking for updates…";
+            var update = await Updater.CheckForUpdateAsync(CancellationToken.None);
+            if (update == null)
+            {
+                MessageBox.Show(
+                    "FreeFlow is up to date (or no published release is available yet).",
+                    "FreeFlow — Updates", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            var answer = MessageBox.Show(
+                $"FreeFlow {update.Tag} is available. Download and install it now?\n\n" +
+                "The app will need a restart after the download.",
+                "FreeFlow — Update available", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+            if (answer != DialogResult.Yes) return;
+            _tray.Text = "FreeFlow — downloading update…";
+            await Updater.DownloadAndReplaceAsync(update.AssetUrl, CancellationToken.None);
+            var restart = MessageBox.Show(
+                "Update installed. Restart FreeFlow now?",
+                "FreeFlow — Update installed", MessageBoxButtons.YesNo, MessageBoxIcon.Information);
+            if (restart == DialogResult.Yes)
+            {
+                var exePath = Environment.ProcessPath!;
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = exePath,
+                    UseShellExecute = true,
+                });
+                ExitApp();
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show("Update check failed: " + ex.Message,
+                "FreeFlow — Updates", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+        finally
+        {
+            UpdateTrayTooltip();
+        }
+    }
+
     private void ShowSettings()
     {
         if (_settingsForm != null && !_settingsForm.IsDisposed)
@@ -236,6 +328,7 @@ public sealed class TrayContext : ApplicationContext
     private void ExitApp()
     {
         _pipeline.CancelNow(); // synchronous: posted cancels would never run after Exit
+        SystemAudioMute.RestoreAfterDictation();
         _hotkeys.Uninstall();
         _tray.Visible = false;
         _tray.Dispose();

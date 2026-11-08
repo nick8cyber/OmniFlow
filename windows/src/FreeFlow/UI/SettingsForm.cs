@@ -46,6 +46,9 @@ public sealed partial class SettingsForm : Form
     private CheckBox _keepInClipboardHistory = null!;
     private CheckBox _appendTrailingSpace = null!;
     private CheckBox _pressEnter = null!;
+    private CheckBox _muteSystemAudio = null!;
+    private NumericUpDown _soundVolume = null!;
+    private Dictionary<string, string> _macroDraft = new();
     private CheckBox _preserveExactWording = null!;
     private CheckBox _commandMode = null!;
     private ComboBox _transcriptionLanguage = null!;
@@ -172,8 +175,11 @@ public sealed partial class SettingsForm : Form
             Height = Scale(52),
             BackColor = Theme.Chrome,
         };
-        footer.Paint += (_, e) => e.Graphics.DrawLine(
-            new Pen(Theme.Divider), 0, 0, footer.Width, 0);
+        footer.Paint += (_, e) =>
+        {
+            using var divider = new Pen(Theme.Divider); // S1: the old pen leaked per paint
+            e.Graphics.DrawLine(divider, 0, 0, footer.Width, 0);
+        };
         var actions = new FlowLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -249,6 +255,12 @@ public sealed partial class SettingsForm : Form
         _settings.KeepInClipboardHistory = _keepInClipboardHistory.Checked;
         _settings.AppendTrailingSpace = _appendTrailingSpace.Checked;
         _settings.PressEnterEnabled = _pressEnter.Checked;
+        _settings.MuteSystemAudioDuringDictation = _muteSystemAudio.Checked;
+        _settings.SoundVolume = (float)(_soundVolume.Value / 100m);
+        // R5: the macro editor staged its changes in a draft — commit only now,
+        // together with everything else (an abandoned settings window used to
+        // mutate the live settings before Save).
+        _settings.VoiceMacros = new Dictionary<string, string>(_macroDraft);
         _settings.PreserveExactWording = _preserveExactWording.Checked;
         _settings.CommandModeEnabled = _commandMode.Checked;
         _settings.TranscriptionLanguage = TranscriptionCode(_transcriptionLanguage.SelectedItem as string);

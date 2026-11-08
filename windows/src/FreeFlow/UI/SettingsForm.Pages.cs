@@ -258,6 +258,17 @@ public sealed partial class SettingsForm
         _appendTrailingSpace = Grids.Check(
             "Add a space after sentence-ending dictations (. ! ?)", _settings.AppendTrailingSpace);
         Grids.Span(pasting.Body, _appendTrailingSpace, 2, 2);
+        _muteSystemAudio = Grids.Check(
+            "Mute system audio while dictating (restored on finish)", _settings.MuteSystemAudioDuringDictation);
+        Grids.Span(pasting.Body, _muteSystemAudio, 4, 2);
+        _soundVolume = new NumericUpDown
+        {
+            Minimum = 0,
+            Maximum = 100,
+            Value = (decimal)Math.Clamp(_settings.SoundVolume * 100f, 0f, 100f),
+            Increment = 5,
+        };
+        Grids.Row(pasting.Body, "Alert sound volume (0–100)", _soundVolume);
         AddCard(stack, pasting);
 
         var context = new Card("Context-aware cleanup");
@@ -289,6 +300,7 @@ public sealed partial class SettingsForm
     private void BuildMacrosPage()
     {
         var stack = MakePage("Macros", "Spoken command → pasted text, no cleanup in between.");
+        _macroDraft = new Dictionary<string, string>(_settings.VoiceMacros); // R5: staged until Save
 
         var macros = new Card("Voice macros", "Select an entry to edit it.");
         var macroListBox = new ThemeListBox { Height = 108 };
@@ -335,7 +347,7 @@ public sealed partial class SettingsForm
 
         _macroList.SelectedIndexChanged += (_, _) =>
         {
-            if (_macroList.SelectedItem is string selected && _settings.VoiceMacros.TryGetValue(selected, out var payload))
+            if (_macroList.SelectedItem is string selected && _macroDraft.TryGetValue(selected, out var payload))
             {
                 _macroCommand.Text = selected;
                 _macroPayload.Text = payload;
@@ -348,14 +360,17 @@ public sealed partial class SettingsForm
     private void ReloadMacroList()
     {
         _macroList.Items.Clear();
-        foreach (var key in _settings.VoiceMacros.Keys) _macroList.Items.Add(key);
+        foreach (var key in _macroDraft.Keys) _macroList.Items.Add(key);
     }
 
     private void AddMacro()
     {
         var command = _macroCommand.Text.Trim();
         if (command.Length == 0) return;
-        _settings.VoiceMacros[command] = _macroPayload.Text;
+        // R5: edits stage into a draft dictionary and reach the live settings only
+        // on Save — the old direct writes mutated settings even when the window
+        // was abandoned without saving.
+        _macroDraft[command] = _macroPayload.Text;
         ReloadMacroList();
         _macroCommand.Text = "";
         _macroPayload.Text = "";
@@ -363,7 +378,7 @@ public sealed partial class SettingsForm
 
     private void DeleteMacro()
     {
-        if (_macroList.SelectedItem is string selected) _settings.VoiceMacros.Remove(selected);
+        if (_macroList.SelectedItem is string selected) _macroDraft.Remove(selected);
         ReloadMacroList();
     }
 

@@ -33,6 +33,8 @@ internal static class Program
             return;
         }
 
+        Updater.CleanupOldBinary(); // remove the previous update's swapped-out exe
+
         var settings = SettingsStore.Load();
         SyncLaunchAtLogin(settings);
 

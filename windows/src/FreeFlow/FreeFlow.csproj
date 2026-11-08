@@ -12,7 +12,7 @@
     <AssemblyName>FreeFlow</AssemblyName>
     <RootNamespace>FreeFlow</RootNamespace>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
-    <Version>0.5.3</Version>
+    <Version>0.6.0</Version>
     <Product>FreeFlow</Product>
     <Description>Windows dictation app: Gemini voice input with Groq fallback, ported from FreeFlow for macOS.</Description>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
