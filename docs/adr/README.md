@@ -14,6 +14,7 @@
 | [0006](0006-provider-fork.md) | accepted | Провайдер — явная развилка; у Gemini нет LLM-постобработки |
 | [0007](0007-settings-ia-redesign.md) | accepted | Настройки: 7 вкладок, UI-кит, меню — быстрые действия, мастер 7 шагов |
 | [0008](0008-branding.md) | accepted | Новая иконка «волна → текст», GitHub-промо убрано из UI |
+| [0009](0009-paste-target-gate.md) | accepted | Верификация цели вставки перед Cmd+V/Ctrl+V; упавший Edit-трансформ не вставляет |
 
 Дерево принятия решений: [decision-tree.md](decision-tree.md).
 

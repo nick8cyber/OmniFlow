@@ -335,6 +335,19 @@ Model: \(model)
         return accessibilityRawString(appElement, kAXSelectedTextAttribute)
     }
 
+    /// Read-only state of the paste target right before the synthetic Cmd+V:
+    /// frontmost bundle id + the focused element's current selection. Kept a
+    /// light probe on purpose — no screenshots, no summaries, no writes.
+    func pasteTimeProbe() -> (frontmostBundleID: String?, selectedText: String?) {
+        let frontmostApp = NSWorkspace.shared.frontmostApplication
+        var selectedText: String?
+        if let frontmostApp {
+            let appElement = AXUIElementCreateApplication(frontmostApp.processIdentifier)
+            selectedText = rawSelectedText(from: appElement)
+        }
+        return (frontmostApp?.bundleIdentifier, selectedText)
+    }
+
     private func focusedWindowBounds(from appElement: AXUIElement) -> CGRect? {
         guard let window = axElement(appElement, kAXFocusedWindowAttribute),
               let positionValue = axValue(window, kAXPositionAttribute),

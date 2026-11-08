@@ -25,6 +25,7 @@ TEST_PRODUCTION_SOURCES = \
 	Sources/LiveTranscriptAccumulator.swift \
 	Sources/ModelConfiguration.swift \
 	Sources/OverlayTextFit.swift \
+	Sources/PasteGate.swift \
 	Sources/PostProcessingService.swift \
 	Sources/SemanticVersion.swift \
 	Sources/SpeechHeuristics.swift \

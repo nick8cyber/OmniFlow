@@ -209,6 +209,11 @@ struct DictationSettingsView: View {
                     Toggle("", isOn: $appState.isPressEnterVoiceCommandEnabled)
                         .toggleStyle(.switch)
                 }
+                FormRow(title: "Add a space after sentence-ending dictations",
+                        subtitle: "Appends one space when the transcript ends with . ! ?") {
+                    Toggle("", isOn: $appState.appendTrailingSpaceAfterSentence)
+                        .toggleStyle(.switch)
+                }
             }
         }
     }

@@ -216,7 +216,7 @@ private enum TranscriptProcessingOutcome {
         case .commandModeSucceeded(let invocation):
             return "Edit mode succeeded (\(invocation.rawValue))"
         case .commandModeFailedFallback(let invocation):
-            return "Edit mode failed, using selected text (\(invocation.rawValue))"
+            return "Edit mode failed — paste cancelled (\(invocation.rawValue))"
         }
     }
 }
@@ -229,6 +229,7 @@ private enum AudioInterruption {
 
 final class AppState: ObservableObject, @unchecked Sendable {
     private static let appLog = OSLog(subsystem: "com.nick8cyber.omniflow", category: "Recording")
+    private static let pasteLog = OSLog(subsystem: "com.nick8cyber.omniflow", category: "Paste")
 
     // MARK: Constants
 
@@ -448,6 +449,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
                                       forKey: "press_enter_voice_command_enabled")
         }
     }
+    @Published var appendTrailingSpaceAfterSentence: Bool {
+        didSet {
+            UserDefaults.standard.set(appendTrailingSpaceAfterSentence,
+                                      forKey: "append_trailing_space_after_sentence")
+        }
+    }
     @Published var alertSoundsEnabled: Bool {
         didSet { UserDefaults.standard.set(alertSoundsEnabled, forKey: "alert_sounds_enabled") }
     }
@@ -606,7 +613,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         preserveClipboard = UserDefaults.standard.object(forKey: "preserve_clipboard") as? Bool ?? true
         preserveExactWording = UserDefaults.standard.bool(forKey: "preserve_exact_wording")
         keepDictationInClipboardHistory = UserDefaults.standard.bool(forKey: "keep_dictation_in_clipboard_history")
-        isPressEnterVoiceCommandEnabled = UserDefaults.standard.object(forKey: "press_enter_voice_command_enabled") as? Bool ?? true
+        isPressEnterVoiceCommandEnabled = UserDefaults.standard.object(forKey: "press_enter_voice_command_enabled") as? Bool ?? false
+        appendTrailingSpaceAfterSentence = UserDefaults.standard.object(forKey: "append_trailing_space_after_sentence") as? Bool ?? true
         let storedSoundVolume = UserDefaults.standard.object(forKey: "sound_volume") as? Float ?? 1.0
         soundVolume = storedSoundVolume
         alertSoundsEnabled = UserDefaults.standard.object(forKey: "alert_sounds_enabled") as? Bool
@@ -913,6 +921,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     private func handleShortcutEvent(_ event: ShortcutEvent) {
         if case .copyAgainTriggered = event {
+            // Paste Again must not write the pasteboard or post Cmd+V while a
+            // session is live: the audit caught it racing the next recording
+            // and chaining replacements.
+            guard !isRecording, !isTranscribing else {
+                Self.logPaste("paste again ignored — session in progress")
+                return
+            }
             copyLastTranscriptToPasteboard()
             return
         }
@@ -1590,33 +1605,81 @@ final class AppState: ObservableObject, @unchecked Sendable {
         debugStatusMessage = "Done"
 
         let shouldPressEnter = parsedTranscript.shouldPressEnterAfterPaste
-        let completionStatusText: String
-        if trimmedFinal.isEmpty {
+
+        // Paste gate (2026-11-08 audit): the synthetic Cmd+V used to fire
+        // 5-45 s after capture with no re-verification, silently consuming a
+        // selection the user made during conversion. Probe the target and
+        // decide immediately before the keystroke.
+        var commandInvocation: CommandInvocation?
+        if case .commandModeSucceeded(let invocation) = result.outcome {
+            commandInvocation = invocation
+        }
+        let probe = contextService.pasteTimeProbe()
+        let gate = PasteGate.evaluate(isCommandSession: commandInvocation != nil,
+                                      capturedSelection: capturedSelection,
+                                      currentSelection: probe.selectedText,
+                                      sessionBundleID: appContext.bundleIdentifier,
+                                      frontmostBundleID: probe.frontmostBundleID)
+        Self.logPaste("gate=\(gate) intent=\(sessionIntent) "
+            + "capturedLen=\(capturedSelection?.count ?? -1) currentLen=\(probe.selectedText?.count ?? -1) "
+            + "frontmost=\(probe.frontmostBundleID ?? "-") session=\(appContext.bundleIdentifier ?? "-")")
+
+        var completionStatusText: String
+        if case .commandModeFailedFallback = result.outcome {
+            // A failed transform used to paste the stale captured selection
+            // over whatever is selected now. Cancel the paste instead: the
+            // dictated text stays in History.
+            completionStatusText = "Edit mode failed — paste cancelled"
+            statusText = "Error"
+            errorMessage = "Edit mode failed — paste cancelled. The dictated text is kept in History."
+            overlayManager.showError("Edit mode failed — paste cancelled. The dictated text is kept in History.")
+            scheduleOverlayDismissAfterFailureIndicator(after: 2.5)
+            Self.logPaste("command transform failed — paste cancelled")
+        } else if trimmedFinal.isEmpty {
             completionStatusText = shouldPressEnter ? "Pressed Enter" : "Nothing to transcribe"
             statusText = completionStatusText
             showPostTranscriptionUpdateReminderIfNeeded()
             if shouldPressEnter {
-                pressEnterWhenShortcutReleased()
+                switch gate {
+                case .paste:
+                    pressEnterWhenShortcutReleased()
+                case .skip(let reason):
+                    completionStatusText = "Enter cancelled"
+                    statusText = completionStatusText
+                    Self.logPaste("enter-only cancelled — \(reason)")
+                }
             }
         } else {
-            completionStatusText = preserveClipboard ? "Pasted at cursor!" : "Copied to clipboard!"
-            statusText = completionStatusText
-            switch result.outcome {
-            case .postProcessingFailedFallback, .preservedExactWordingTranslationFailedFallback,
-                 .postProcessingSkippedCooldown:
-                scheduleOverlayDismissAfterFailureIndicator(after: 2.5)
-            default:
-                showPostTranscriptionUpdateReminderIfNeeded()
-            }
             let pendingRestore = writeTranscriptToPasteboard(trimmedFinal)
-            pasteAtCursorWhenShortcutReleased { [weak self] in
-                if shouldPressEnter {
-                    self?.pressEnterAfterPaste {
+            switch gate {
+            case .paste:
+                completionStatusText = preserveClipboard ? "Pasted at cursor!" : "Copied to clipboard!"
+                statusText = completionStatusText
+                switch result.outcome {
+                case .postProcessingFailedFallback, .preservedExactWordingTranslationFailedFallback,
+                     .postProcessingSkippedCooldown:
+                    scheduleOverlayDismissAfterFailureIndicator(after: 2.5)
+                default:
+                    showPostTranscriptionUpdateReminderIfNeeded()
+                }
+                pasteAtCursorWhenShortcutReleased { [weak self] in
+                    if shouldPressEnter {
+                        self?.pressEnterAfterPaste {
+                            self?.restoreClipboardIfNeeded(pendingRestore)
+                        }
+                    } else {
                         self?.restoreClipboardIfNeeded(pendingRestore)
                     }
-                } else {
-                    self?.restoreClipboardIfNeeded(pendingRestore)
                 }
+            case .skip(let reason):
+                completionStatusText = "Paste cancelled — transcript is on the clipboard"
+                statusText = completionStatusText
+                errorMessage = "Paste cancelled: \(reason)."
+                overlayManager.showError("Paste cancelled: \(reason). The transcript is on the clipboard — paste it manually.")
+                scheduleOverlayDismissAfterFailureIndicator(after: 2.5)
+                // No paste happened: keep the transcript on the pasteboard for
+                // a manual Cmd+V, so the pending restore is dropped on purpose.
+                Self.logPaste("paste cancelled — \(reason)")
             }
         }
 
@@ -1861,7 +1924,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     outputLanguage: outputLanguage)
                 return (commandResult.transcript, .commandModeSucceeded(invocation: invocation), commandResult.prompt)
             } catch {
-                return (selectedText, .commandModeFailedFallback(invocation: invocation), "")
+                // The stale captured selection must never be pasted over the
+                // user's current selection (audit finding: on transform
+                // failure the fallback re-pasted the old text blind).
+                return ("", .commandModeFailedFallback(invocation: invocation), "")
             }
         }
         if let macro = findMatchingMacro(for: trimmedRawTranscript) {
@@ -2218,7 +2284,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let pasteboard = NSPasteboard.general
         let snapshot = preserveClipboard ? PreservedPasteboardSnapshot(pasteboard: pasteboard) : nil
         var textToWrite = transcript
-        if let lastCharacter = transcript.last, ".!?".contains(lastCharacter) {
+        if appendTrailingSpaceAfterSentence, let lastCharacter = transcript.last,
+           ".!?".contains(lastCharacter) {
             textToWrite = transcript + " "
         }
         if keepDictationInClipboardHistory {
@@ -2256,8 +2323,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
             // ("Paste Again" rewriting the same text within the restore window)
             // must NOT count as ours — the restore would clobber it.
             let stillOurs = pasteboard.changeCount == pendingRestore.expectedChangeCount
-            guard stillOurs else { return }
+            guard stillOurs else {
+                Self.logPaste("restore skipped — pasteboard changed since paste "
+                    + "(\(pasteboard.changeCount) != \(pendingRestore.expectedChangeCount))")
+                return
+            }
             pendingRestore.snapshot.restore(to: pasteboard)
+            Self.logPaste("clipboard restored")
         }
     }
 
@@ -2303,12 +2375,19 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let keyUp = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: false)
         keyUp?.flags = .maskCommand
         keyUp?.post(tap: .cgSessionEventTap)
+        Self.logPaste("Cmd+V posted (keycode \(vKeyCode))")
     }
 
     private func pressEnter() {
         guard let source = CGEventSource(stateID: .hidSystemState) else { return }
         CGEvent(keyboardEventSource: source, virtualKey: 36, keyDown: true)?.post(tap: .cgSessionEventTap)
         CGEvent(keyboardEventSource: source, virtualKey: 36, keyDown: false)?.post(tap: .cgSessionEventTap)
+        Self.logPaste("Return posted")
+    }
+
+    /// Paste-path logging: lengths and bundle ids only, never transcript text.
+    private static func logPaste(_ message: String) {
+        os_log("%{public}@", log: pasteLog, type: .info, message)
     }
 
     private static func keyCodeForCharacter(_ character: Character) -> UInt16? {

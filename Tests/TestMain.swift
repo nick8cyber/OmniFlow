@@ -2,6 +2,7 @@
 struct OmniFlowTests {
     static func main() {
         OverlayTextFitterTests.run()
+        PasteGateTests.run()
         AIProviderTests.run()
         AppContextServiceTests.run()
         AppSettingsDefaultsTests.run()
