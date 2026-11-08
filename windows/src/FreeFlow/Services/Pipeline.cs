@@ -157,7 +157,7 @@ public sealed class Pipeline
                 RestoreFocusTo(restoreTarget);
                 _paste.Paste(
                     transcript, pressEnterAfter: false, settings.PreserveClipboard,
-                    settings.KeepInClipboardHistory);
+                    settings.KeepInClipboardHistory, settings.AppendTrailingSpace);
             }
             catch (Exception)
             {
@@ -509,12 +509,20 @@ public sealed class Pipeline
             var system = SystemPromptBuilder.BuildCommandModePrompt(settings.OutputLanguage, settings.CustomVocabulary);
             var user = Prompts.CommandModeUserMessage(contextSummary, text, _selectionSnapshot);
             var result = await _router.CompleteWithFallbackAsync(system, user, ct);
-            finalText = result.Text != null
-                ? TranscriptOutputSanitizer.CommandModeTranscript(result.Text)
-                : _selectionSnapshot;
-            status = result.Text != null
-                ? $"Transformed selection with {result.ProviderUsed}"
-                : "Edit failed, selection kept unchanged";
+            if (result.Text == null)
+            {
+                // macOS parity (2026-11-08 audit): a failed transform used to fall
+                // back to the stale captured selection and paste it over whatever
+                // the user has selected now. Cancel the paste instead — the dictated
+                // text stays in History.
+                Post(() => ErrorOccurred?.Invoke(
+                    "Edit failed — paste cancelled. The dictated text is kept in History."));
+                RecordHistory(settings, text, "", "Edit failed — paste cancelled",
+                    transcription.Provider);
+                return;
+            }
+            finalText = TranscriptOutputSanitizer.CommandModeTranscript(result.Text);
+            status = $"Transformed selection with {result.ProviderUsed}";
         }
         else if (FindMacro(settings, text) is { } macro)
         {
@@ -636,9 +644,22 @@ public sealed class Pipeline
         {
             if (parsing.ShouldPressEnterAfterPaste)
             {
-                // macOS still presses Enter when only "press enter" was dictated.
-                Post(() => StatusChanged?.Invoke("Pressed Enter"));
-                _paste.PressEnterOnly();
+                // macOS still presses Enter when only "press enter" was dictated —
+                // behind the same focus gate as a paste.
+                var enterSession = ProcessNameOfWindow(_targetWindow);
+                var enterForeground = ProcessNameOfWindow(GetForegroundWindow());
+                var enterSkip = PasteGate.Evaluate(editSession: false, capturedSelection: null,
+                    currentSelection: null, sessionProcessName: enterSession,
+                    foregroundProcessName: enterForeground);
+                if (enterSkip == null)
+                {
+                    Post(() => StatusChanged?.Invoke("Pressed Enter"));
+                    _paste.PressEnterOnly();
+                }
+                else
+                {
+                    Post(() => ErrorOccurred?.Invoke($"Enter cancelled: {enterSkip}."));
+                }
             }
             else
             {
@@ -650,16 +671,52 @@ public sealed class Pipeline
         _lastTranscript = finalText;
         Post(() => StatusChanged?.Invoke(status + (parsing.ShouldPressEnterAfterPaste ? "; detected press enter command" : "")));
 
+        // Paste gate (macOS PasteGate parity, 2026-11-08 audit): re-check the
+        // target right before the keystroke. Edit sessions require the captured
+        // selection to still sit unchanged; plain dictations require the focus
+        // to still be the session's app. On skip the transcript stays on the
+        // clipboard for a manual paste.
+        var sessionProcess = ProcessNameOfWindow(_targetWindow);
         RestoreFocusToTarget();
-        var pasted = _paste.Paste(
-            finalText,
-            parsing.ShouldPressEnterAfterPaste,
-            settings.PreserveClipboard,
-            settings.KeepInClipboardHistory);
-        if (!pasted)
+        var foregroundProcess = ProcessNameOfWindow(GetForegroundWindow());
+        string? skipReason;
+        if (editIntent && settings.CommandModeEnabled)
         {
+            skipReason = PasteGate.Evaluate(editSession: true,
+                capturedSelection: _selectionSnapshot,
+                currentSelection: SelectionCapture.GetSelectedText(),
+                sessionProcessName: sessionProcess,
+                foregroundProcessName: foregroundProcess);
+        }
+        else
+        {
+            skipReason = PasteGate.Evaluate(editSession: false,
+                capturedSelection: null,
+                currentSelection: null,
+                sessionProcessName: sessionProcess,
+                foregroundProcessName: foregroundProcess);
+        }
+        System.Diagnostics.Debug.WriteLine($"[PasteGate] session={sessionProcess ?? "-"} foreground={foregroundProcess ?? "-"} skip={skipReason ?? "null"}");
+
+        if (skipReason != null)
+        {
+            _paste.CopyOnly(finalText, settings.KeepInClipboardHistory, settings.AppendTrailingSpace);
             Post(() => ErrorOccurred?.Invoke(
-                "Could not paste — the clipboard or the target window refused input (is it elevated?)"));
+                $"Paste cancelled: {skipReason}. The transcript is on the clipboard — paste it manually."));
+        }
+        else
+        {
+            var pasted = _paste.Paste(
+                finalText,
+                parsing.ShouldPressEnterAfterPaste,
+                settings.PreserveClipboard,
+                settings.KeepInClipboardHistory,
+                settings.AppendTrailingSpace);
+            if (!pasted)
+            {
+                Post(() => ErrorOccurred?.Invoke(
+                    "Could not paste — the clipboard or the target window refused input (is it elevated?)"));
+            }
         }
 
         if (settings.KeepHistory) _history.Append(new HistoryEntry(
@@ -697,7 +754,7 @@ public sealed class Pipeline
                 _lastTranscript = raw;
                 Post(() => StatusChanged?.Invoke($"Retried with {transcription.Provider}"));
                 var pasted = _paste.Paste(raw, pressEnterAfter: false, settings.PreserveClipboard,
-                    settings.KeepInClipboardHistory);
+                    settings.KeepInClipboardHistory, settings.AppendTrailingSpace);
                 // Keep the file when the paste failed: "Paste last recording" can
                 // try again, and the transcript also survives via Paste Again.
                 if (pasted) File.Delete(path);
@@ -735,6 +792,25 @@ public sealed class Pipeline
     private static extern bool SetForegroundWindow(IntPtr hWnd);
     [DllImport("user32.dll")]
     private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, IntPtr dwExtraInfo);
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+    /// <summary>Best-effort process name of a window — null when it cannot be
+    /// verified (window gone, process exited, access denied): the gate treats
+    /// "unknown" as unverifiable and lets the paste through.</summary>
+    private static string? ProcessNameOfWindow(IntPtr window)
+    {
+        if (window == IntPtr.Zero) return null;
+        try
+        {
+            GetWindowThreadProcessId(window, out var pid);
+            return pid == 0 ? null : System.Diagnostics.Process.GetProcessById((int)pid).ProcessName;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
 
     /// <summary>
     /// Best-effort restore of a window: a stray click during recording (or opening

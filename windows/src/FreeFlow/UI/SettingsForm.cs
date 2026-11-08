@@ -44,6 +44,7 @@ public sealed partial class SettingsForm : Form
     private CheckBox _preserveClipboard = null!;
     private CheckBox _keepHistory = null!;
     private CheckBox _keepInClipboardHistory = null!;
+    private CheckBox _appendTrailingSpace = null!;
     private CheckBox _pressEnter = null!;
     private CheckBox _preserveExactWording = null!;
     private CheckBox _commandMode = null!;
@@ -246,6 +247,7 @@ public sealed partial class SettingsForm : Form
         _settings.PreserveClipboard = _preserveClipboard.Checked;
         _settings.KeepHistory = _keepHistory.Checked;
         _settings.KeepInClipboardHistory = _keepInClipboardHistory.Checked;
+        _settings.AppendTrailingSpace = _appendTrailingSpace.Checked;
         _settings.PressEnterEnabled = _pressEnter.Checked;
         _settings.PreserveExactWording = _preserveExactWording.Checked;
         _settings.CommandModeEnabled = _commandMode.Checked;

@@ -255,6 +255,9 @@ public sealed partial class SettingsForm
         _keepInClipboardHistory = Grids.Check(
             "Keep dictation in clipboard history (default: hidden)", _settings.KeepInClipboardHistory);
         Grids.Span(pasting.Body, _keepInClipboardHistory, 2, 2);
+        _appendTrailingSpace = Grids.Check(
+            "Add a space after sentence-ending dictations (. ! ?)", _settings.AppendTrailingSpace);
+        Grids.Span(pasting.Body, _appendTrailingSpace, 2, 2);
         AddCard(stack, pasting);
 
         var context = new Card("Context-aware cleanup");

@@ -85,7 +85,8 @@ public sealed class AppSettings
     public bool KeepInClipboardHistory { get; set; } = false;
     public bool AlertSounds { get; set; } = true;
     public bool StartWithWindows { get; set; } = false;
-    public bool PressEnterEnabled { get; set; } = true;
+    public bool PressEnterEnabled { get; set; } = false;
+    public bool AppendTrailingSpace { get; set; } = true;
     public bool PreserveExactWording { get; set; } = false;
     public bool CommandModeEnabled { get; set; } = false;
     public string TranscriptionLanguage { get; set; } = "";

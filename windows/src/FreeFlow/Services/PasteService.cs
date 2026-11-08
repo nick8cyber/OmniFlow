@@ -33,12 +33,29 @@ public sealed class PasteService
     /// <summary>Pastes the text into the focused app. Returns false when the clipboard or the
     /// synthetic keys failed, so the caller can surface an error instead of silently pasting
     /// stale clipboard content into the user's document.</summary>
-    public bool Paste(string text, bool pressEnterAfter, bool preserveClipboard, bool keepInClipboardHistory)
+    public bool Paste(string text, bool pressEnterAfter, bool preserveClipboard, bool keepInClipboardHistory,
+        bool appendTrailingSpace = true)
     {
         _gate.Wait();
         try
         {
-            return PasteCore(text, pressEnterAfter, preserveClipboard, keepInClipboardHistory);
+            return PasteCore(text, pressEnterAfter, preserveClipboard, keepInClipboardHistory, appendTrailingSpace);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>Writes the transcript to the clipboard WITHOUT sending Ctrl+V — the
+    /// paste-gate skip path (macOS parity): the user pastes manually.</summary>
+    public bool CopyOnly(string text, bool keepInClipboardHistory, bool appendTrailingSpace = true)
+    {
+        _gate.Wait();
+        try
+        {
+            var clipboardText = appendTrailingSpace ? TextUtil.WithTrailingSpace(text) : text;
+            return Win32Clipboard.TrySetText(clipboardText, includeInHistory: keepInClipboardHistory);
         }
         finally
         {
@@ -61,7 +78,8 @@ public sealed class PasteService
         }
     }
 
-    private bool PasteCore(string text, bool pressEnterAfter, bool preserveClipboard, bool keepInClipboardHistory)
+    private bool PasteCore(string text, bool pressEnterAfter, bool preserveClipboard, bool keepInClipboardHistory,
+        bool appendTrailingSpace)
     {
         // Full-format snapshot (macOS parity): text AND images/files/HTML are captured,
         // so restoring can never destroy a copied screenshot or file. The snapshot also
@@ -70,7 +88,7 @@ public sealed class PasteService
 
         // macOS writes the transcript to the pasteboard immediately, THEN waits for the
         // shortcut keys to be physically released. Same order here.
-        var clipboardText = TextUtil.WithTrailingSpace(text);
+        var clipboardText = appendTrailingSpace ? TextUtil.WithTrailingSpace(text) : text;
         if (!Win32Clipboard.TrySetText(clipboardText, includeInHistory: keepInClipboardHistory))
         {
             return false;
