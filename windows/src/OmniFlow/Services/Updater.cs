@@ -6,7 +6,7 @@ namespace OmniFlow.Services;
 
 /// <summary>
 /// GitHub-releases updater (macOS UpdateManager parity): checks
-/// nick8cyber/freeflow releases/latest for a OmniFlow.exe asset newer than the
+/// nick8cyber/omniflow-windows releases/latest for a OmniFlow.exe asset newer than the
 /// running build, downloads it and swaps the running exe (current renamed to
 /// .old — a running exe cannot be deleted but can be renamed; the .old file is
 /// removed on the next start). With no published releases the check reports
@@ -15,7 +15,7 @@ namespace OmniFlow.Services;
 public static class Updater
 {
     private const string LatestApi =
-        "https://api.github.com/repos/nick8cyber/freeflow/releases/latest";
+        "https://api.github.com/repos/nick8cyber/omniflow-windows/releases/latest";
 
     public sealed record UpdateInfo(string Tag, string AssetUrl);
 
