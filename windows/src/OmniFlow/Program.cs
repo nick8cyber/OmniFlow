@@ -1,0 +1,127 @@
+using OmniFlow.Core;
+using OmniFlow.Services;
+using OmniFlow.UI;
+using WinFormsTimer = System.Windows.Forms.Timer;
+
+namespace OmniFlow;
+
+internal static class Program
+{
+    [STAThread]
+    private static void Main(string[] args)
+    {
+        ApplicationConfiguration.Initialize();
+
+        bool showSettings = HasFlag(args, "--settings");
+        bool forceSetup = HasFlag(args, "--setup");
+        bool overlayDemo = HasFlag(args, "--demo-overlay");
+
+        if (overlayDemo)
+        {
+            // Dev helper: cycles the overlay through its states without hotkeys/tray.
+            // Runs before the single-instance check so it can be captured while the
+            // real app lives in the tray.
+            RunOverlayDemo();
+            return;
+        }
+
+        using var mutex = new Mutex(true, "OmniFlow.Windows.SingleInstance", out var isFirstInstance);
+        if (!isFirstInstance)
+        {
+            MessageBox.Show("OmniFlow is already running. Check the system tray.", "OmniFlow",
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        Updater.CleanupOldBinary(); // remove the previous update's swapped-out exe
+
+        var settings = SettingsStore.Load();
+        SyncLaunchAtLogin(settings);
+
+        if (forceSetup || !settings.HasCompletedSetup)
+        {
+            using var setup = new SetupForm(settings);
+            if (setup.ShowDialog() != DialogResult.OK) return;
+            settings.HasCompletedSetup = true;
+            SettingsStore.Save(settings);
+        }
+
+        var tray = new TrayContext(settings);
+        if (showSettings) tray.ShowSettingsWindow();
+        Application.Run(tray);
+    }
+
+    /// <summary>macOS Launch-at-login parity: keep the HKCU Run value in sync
+    /// with the saved setting on every start, so a moved exe never leaves a
+    /// stale path behind. Best-effort — failures never block startup.</summary>
+    private static void SyncLaunchAtLogin(AppSettings settings)
+    {
+        try
+        {
+            const string valueName = "OmniFlow";
+            const string legacyValueName = "FreeFlow"; // pre-rename installs
+            const string runKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
+            using var runKey = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(runKeyPath, writable: true)
+                ?? Microsoft.Win32.Registry.CurrentUser.CreateSubKey(runKeyPath, writable: true);
+            if (runKey == null) return;
+            var exePath = Environment.ProcessPath ?? "";
+            var existing = runKey.GetValue(valueName) as string;
+            if (settings.LaunchAtLogin && !string.IsNullOrEmpty(exePath))
+            {
+                if (existing != $"\"{exePath}\"") runKey.SetValue(valueName, $"\"{exePath}\"");
+            }
+            else if (!settings.LaunchAtLogin && existing != null)
+            {
+                runKey.DeleteValue(valueName, false);
+            }
+            // A value left by the previous naming points at an exe that no longer
+            // exists after the upgrade — drop it so autostart never resurrects it.
+            if (runKey.GetValue(legacyValueName) != null) runKey.DeleteValue(legacyValueName, false);
+        }
+        catch
+        {
+            // Best-effort: the settings toggle stays functional in-app.
+        }
+    }
+
+    private static bool HasFlag(string[] args, string flag) =>
+        args.Any(a => string.Equals(a, flag, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Dev helper: cycles the overlay through recording (with a synthetic
+    /// transcript), status and error states, then exits. Text is invented — never
+    /// a real dictation.</summary>
+    private static void RunOverlayDemo()
+    {
+        var overlay = new OverlayForm();
+        overlay.ShowRecording();
+        overlay.UpdateTargetApp("Telegram");
+
+        var timer = new WinFormsTimer { Interval = 50 };
+        int elapsed = 0;
+        timer.Tick += (_, _) =>
+        {
+            elapsed += timer.Interval;
+            if (elapsed <= 2600)
+            {
+                if (elapsed == 900)
+                {
+                    overlay.UpdateTranscript("The quick brown fox jumps over the lazy dog. " +
+                        "Pack my box with five dozen liquor jugs. Sphinx of black quartz, judge my vow.");
+                }
+                overlay.UpdateLevel(0.3 + 0.6 * Math.Abs(Math.Sin(elapsed / 220.0)));
+            }
+            else if (elapsed == 2700) overlay.ShowStatus("Transcribing…");
+            else if (elapsed == 4200) overlay.ShowStatus("Polishing with app context…");
+            else if (elapsed == 5600) overlay.HideAfterDelay();
+            else if (elapsed == 7600) overlay.ShowError("Demo error: Gemini is unreachable (network)");
+            else if (elapsed >= 12200)
+            {
+                timer.Stop();
+                overlay.Dispose();
+                Application.Exit();
+            }
+        };
+        timer.Start();
+        Application.Run(overlay);
+    }
+}

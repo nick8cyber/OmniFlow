@@ -1,0 +1,428 @@
+using System.Diagnostics;
+using System.IO;
+using System.Runtime.InteropServices;
+using OmniFlow.Core;
+using OmniFlow.Services;
+using WinFormsTimer = System.Windows.Forms.Timer;
+
+namespace OmniFlow.UI;
+
+/// <summary>
+/// Tray application context: owns the hotkey engine and pipeline, shows the
+/// recording overlay, and provides the tray menu (settings, paste again, exit).
+/// </summary>
+public sealed class TrayContext : ApplicationContext
+{
+    private readonly AppSettings _settings;
+    private readonly HotkeyEngine _hotkeys = new();
+    private readonly ProviderRouter _router;
+    private readonly Pipeline _pipeline;
+    private readonly OverlayForm _overlay;
+    private readonly NotifyIcon _tray;
+    private readonly HistoryStore _history;
+    private SettingsForm? _settingsForm;
+
+    public TrayContext(AppSettings settings)
+    {
+        _settings = settings;
+        _history = new HistoryStore();
+        _router = new ProviderRouter(() => _settings);
+
+        // The overlay must exist before the pipeline: it both hosts the marshaling
+        // control the pipeline posts hotkey work onto and receives its UI events.
+        _overlay = new OverlayForm();
+        _ = _overlay.Handle; // force handle creation so BeginInvoke works immediately
+
+        _pipeline = new Pipeline(
+            () => _settings,
+            _router,
+            _hotkeys,
+            _history,
+            marshal: action => _overlay.BeginInvoke((Delegate)action));
+
+        ApplyHotkeySettings();
+
+        // Session begin/end perform device work (microphone open with format-ladder
+        // retries, Live socket setup) — marshal them off the hook thread: a stalled
+        // WH_KEYBOARD_LL callback gets the hook silently removed by Windows and all
+        // hotkeys die until restart.
+        _hotkeys.HoldActivated += () => _overlay.BeginInvoke((Delegate)(Action)_pipeline.OnHoldActivated);
+        _hotkeys.HoldDeactivated += () => _overlay.BeginInvoke((Delegate)(Action)_pipeline.OnHoldDeactivated);
+        _hotkeys.ToggleActivated += () => _overlay.BeginInvoke((Delegate)(Action)_pipeline.OnToggleActivated);
+        _hotkeys.PasteAgainTriggered += () => _pipeline.PasteAgain(_settings);
+        _hotkeys.EscapeRequested += () => _pipeline.OnEscapeRequested();
+        HotkeyBox.CaptureFocusChanged += capturing =>
+        {
+            _hotkeys.CaptureMode = capturing;
+            if (!capturing) _hotkeys.ResetCaptureState();
+        };
+        _hotkeys.KeyCaptured += HotkeyBox.HandleExternalCapture;
+        if (!_hotkeys.Install())
+        {
+            // Mirror the macOS hotkeyMonitoringErrorMessage surfacing.
+            _overlay.ShowError("Global shortcut monitoring could not start — hotkeys are disabled. Restart the app or check security software.");
+        }
+
+        _pipeline.RecordingStarted += _ =>
+        {
+            var target = _pipeline.TargetWindow;
+            _overlay.AnchorScreen = target != IntPtr.Zero ? Screen.FromHandle(target) : null;
+            _overlay.ShowRecording();
+            if (_settings.AlertSounds) AlertPlayer.Play("SystemHand", _settings.SoundVolume); // macOS "Tink" parity
+        };
+        _pipeline.LevelChanged += _overlay.UpdateLevel;
+        _pipeline.PartialTranscript += _overlay.UpdateTranscript;
+        _pipeline.TargetAppChanged += _overlay.UpdateTargetApp;
+        _pipeline.StatusChanged += status => { _overlay.ShowStatus(status); UpdateTrayTooltip(); };
+        _pipeline.Finished += () =>
+        {
+            _overlay.HideAfterDelay();
+            UpdateTrayTooltip();
+            if (_settings.AlertSounds) AlertPlayer.Play("SystemAsterisk", _settings.SoundVolume); // macOS "Pop" parity
+        };
+        _pipeline.Cancelled += () => { _overlay.HideAfterDelay(); UpdateTrayTooltip(); };
+        _pipeline.ErrorOccurred += message =>
+        {
+            _overlay.ShowError(message);
+            UpdateTrayTooltip();
+            _lastErrorItem.Text = "Last error: " + (message.Length > 90 ? message[..90] + "…" : message);
+            _lastErrorItem.Visible = true;
+            if (_settings.AlertSounds) AlertPlayer.Play("SystemExclamation", _settings.SoundVolume); // macOS "Basso" parity
+        };
+
+        // A throwing marshaled action surfaces here instead of WinForms' crash dialog.
+        Application.ThreadException += (_, e) =>
+        {
+            _overlay.ShowError("Internal error: " + e.Exception.Message);
+            if (_settings.AlertSounds) AlertPlayer.Play("SystemHand", _settings.SoundVolume);
+        };
+
+        _tray = new NotifyIcon
+        {
+            Icon = AppIcon.Create(),
+            Text = "OmniFlow",
+            Visible = true,
+            ContextMenuStrip = BuildMenu(),
+        };
+        _tray.DoubleClick += (_, _) => ShowSettings();
+
+        // Hook health readout: the tooltip exposes the live hook event counter so a
+        // silently removed hook (Windows does it after any slow callback) is visible
+        // from outside the process instead of presenting as "the hotkey is dead".
+        // The same counter lands in a tiny state file (counter only, no user data)
+        // for external diagnostics. An uninstalled hook is retried here every tick —
+        // whatever blocked the install at startup, hotkeys come back on their own.
+        // Remember the last real foreground window (tray clicks move focus to the
+        // shell — paste-again and tray-started sessions must re-focus the window
+        // the user was typing in).
+        var focusTimer = new WinFormsTimer { Interval = 200 };
+        focusTimer.Tick += (_, _) => ForegroundTracker.Update();
+        focusTimer.Start();
+
+        var statePath = Path.Combine(SettingsStore.DirectoryPath, "hookstate.json");
+        var healthTimer = new WinFormsTimer { Interval = 2000 };
+        var lastEvents = 0L;
+        var lastInputTick = 0u;
+        var staleChecks = 0;
+        healthTimer.Tick += (_, _) =>
+        {
+            if (!_hotkeys.Installed) _hotkeys.Install();
+            var installed = _hotkeys.Installed;
+            var events = _hotkeys.EventsSeen;
+            var moving = events != lastEvents;
+            // R1 self-heal: Windows silently removes a WH_KEYBOARD_LL hook whose
+            // callback stalls (secure desktop, timeout) — the handle stays non-zero,
+            // the counter freezes and every hotkey is dead until restart. A frozen
+            // counter while GetLastInputInfo proves fresh user input means the hook
+            // is gone: recreate it here (the hook is serviced by this message pump).
+            // Skipped while a session or capture mode is live — a mid-session
+            // reinstall could strand a swallowed key.
+            var inputTick = LastInputTick();
+            if (!moving && inputTick != lastInputTick && !_pipeline.IsBusy && !_hotkeys.CaptureMode)
+            {
+                if (++staleChecks >= 3)
+                {
+                    staleChecks = 0;
+                    _hotkeys.ForceReinstall();
+                }
+            }
+            else
+            {
+                staleChecks = 0;
+            }
+            lastEvents = events;
+            lastInputTick = inputTick;
+            _tray.Text = installed
+                ? $"OmniFlow | hook {(moving ? "ok" : "idle")} ({events})"
+                : "OmniFlow | HOTKEYS UNAVAILABLE";
+            try
+            {
+                File.WriteAllText(statePath,
+                    $"{{\"installed\":{(installed ? "true" : "false")},\"events\":{events},\"moving\":{(moving ? "true" : "false")},\"lastVk\":{_hotkeys.LastKeyDownVk},\"holdVk\":{_hotkeys.Hold.VirtualKey},\"holdActive\":{(_pipeline.IsBusy ? "true" : "false")},\"recent\":\"{_hotkeys.RecentKeyDownVks}\"}}");
+            }
+            catch (Exception) { }
+        };
+        healthTimer.Start();
+    }
+
+    private void SetTrayIcon(bool recording)
+    {
+        // Icons are cached per state inside AppIcon (shared with the forms) — never disposed here.
+        _tray.Icon = AppIcon.Create(recording);
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct LASTINPUTINFO
+    {
+        public uint cbSize;
+        public uint dwTime;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool GetLastInputInfo(ref LASTINPUTINFO plii);
+
+    private static uint LastInputTick()
+    {
+        var info = new LASTINPUTINFO { cbSize = (uint)Marshal.SizeOf<LASTINPUTINFO>() };
+        return GetLastInputInfo(ref info) ? info.dwTime : 0;
+    }
+
+    private void ApplyHotkeySettings()
+    {
+        _hotkeys.Hold = new HotkeyBinding(_settings.HoldHotkeyVk, _settings.HoldHotkeyMods);
+        _hotkeys.Toggle = new HotkeyBinding(_settings.ToggleHotkeyVk, _settings.ToggleHotkeyMods);
+        _hotkeys.PasteAgain = new HotkeyBinding(_settings.PasteAgainHotkeyVk, _settings.PasteAgainHotkeyMods);
+        _hotkeys.SuppressBoundKey = _settings.SuppressBoundKey;
+        if (_holdHintItem != null)
+        {
+            _holdHintItem.Text = $"Hold {HotkeyNaming.Describe(_settings.HoldHotkeyVk, _settings.HoldHotkeyMods)} to dictate";
+        }
+    }
+
+    private ToolStripMenuItem _holdHintItem = null!;
+    private ToolStripMenuItem _lastErrorItem = null!;
+
+    private ContextMenuStrip BuildMenu()
+    {
+        var menu = new ContextMenuStrip();
+        Theme.StyleMenu(menu);
+        _holdHintItem = new ToolStripMenuItem(
+            $"Hold {HotkeyNaming.Describe(_settings.HoldHotkeyVk, _settings.HoldHotkeyMods)} to dictate")
+        {
+            Enabled = false,
+        };
+        menu.Items.Add(_holdHintItem);
+        menu.Items.Add(new ToolStripSeparator());
+
+        var startStop = new ToolStripMenuItem("Start / stop dictation");
+        startStop.Click += (_, _) => _pipeline.OnToggleActivated();
+        menu.Items.Add(startStop);
+
+        var pasteAgain = new ToolStripMenuItem("Paste again");
+        pasteAgain.Click += (_, _) => _pipeline.PasteAgain(_settings, ForegroundTracker.Last);
+        menu.Items.Add(pasteAgain);
+
+        var retryRecording = new ToolStripMenuItem("Paste last recording");
+        retryRecording.Click += (_, _) => _pipeline.RetryLastRecording(_settings);
+        menu.Items.Add(retryRecording);
+
+        _lastErrorItem = new ToolStripMenuItem("Last error: none") { Enabled = false, Visible = false };
+        menu.Items.Add(_lastErrorItem);
+
+        menu.Items.Add(new ToolStripSeparator());
+        var checkUpdates = new ToolStripMenuItem("Check for Updates…");
+        checkUpdates.Click += (_, _) => _ = RunUpdateCheckAsync();
+        menu.Items.Add(checkUpdates);
+
+        menu.Items.Add(new ToolStripSeparator());
+        var settingsItem = new ToolStripMenuItem("Settings…");
+        settingsItem.Font = new Font(settingsItem.Font, FontStyle.Bold);
+        settingsItem.Click += (_, _) => ShowSettings();
+        menu.Items.Add(settingsItem);
+
+        var autostart = new ToolStripMenuItem("Start with Windows");
+        autostart.Checked = _settings.StartWithWindows;
+        autostart.Click += (_, _) =>
+        {
+            _settings.StartWithWindows = !_settings.StartWithWindows;
+            autostart.Checked = _settings.StartWithWindows;
+            Autostart.Set(_settings.StartWithWindows);
+            SettingsStore.Save(_settings);
+        };
+        menu.Items.Add(autostart);
+
+        menu.Items.Add(new ToolStripSeparator());
+        var exit = new ToolStripMenuItem("Exit");
+        exit.Click += (_, _) => ExitApp();
+        menu.Items.Add(exit);
+        return menu;
+    }
+
+    /// <summary>Opens (or activates) the settings window; also used by the --settings launch flag.</summary>
+    public void ShowSettingsWindow() => ShowSettings();
+
+    private async Task RunUpdateCheckAsync()
+    {
+        try
+        {
+            SetTrayIcon(false);
+            UpdateTrayTooltip();
+            _tray.Text = "OmniFlow — checking for updates…";
+            var update = await Updater.CheckForUpdateAsync(CancellationToken.None);
+            if (update == null)
+            {
+                MessageBox.Show(
+                    "OmniFlow is up to date (or no published release is available yet).",
+                    "OmniFlow — Updates", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            var answer = MessageBox.Show(
+                $"OmniFlow {update.Tag} is available. Download and install it now?\n\n" +
+                "The app will need a restart after the download.",
+                "OmniFlow — Update available", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+            if (answer != DialogResult.Yes) return;
+            _tray.Text = "OmniFlow — downloading update…";
+            await Updater.DownloadAndReplaceAsync(update.AssetUrl, CancellationToken.None);
+            var restart = MessageBox.Show(
+                "Update installed. Restart OmniFlow now?",
+                "OmniFlow — Update installed", MessageBoxButtons.YesNo, MessageBoxIcon.Information);
+            if (restart == DialogResult.Yes)
+            {
+                var exePath = Environment.ProcessPath!;
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = exePath,
+                    UseShellExecute = true,
+                });
+                ExitApp();
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show("Update check failed: " + ex.Message,
+                "OmniFlow — Updates", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+        finally
+        {
+            UpdateTrayTooltip();
+        }
+    }
+
+    private void ShowSettings()
+    {
+        if (_settingsForm != null && !_settingsForm.IsDisposed)
+        {
+            _settingsForm.Activate();
+            return;
+        }
+        _settingsForm = new SettingsForm(_settings, _history, ApplyHotkeySettings);
+        _settingsForm.Show();
+    }
+
+    private void UpdateTrayTooltip()
+    {
+        _tray.Text = _pipeline.IsBusy ? "OmniFlow — listening…" : "OmniFlow";
+        SetTrayIcon(_pipeline.IsBusy); // subtle accent dot on the glyph while recording
+    }
+
+    private void ExitApp()
+    {
+        _pipeline.CancelNow(); // synchronous: posted cancels would never run after Exit
+        SystemAudioMute.RestoreAfterDictation();
+        _hotkeys.Uninstall();
+        _tray.Visible = false;
+        _tray.Dispose();
+        Application.Exit();
+    }
+}
+
+public static class Autostart
+{
+    private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
+    private const string ValueName = "OmniFlow";
+
+    public static void Set(bool enabled)
+    {
+        using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(RunKey, writable: true);
+        if (key == null) return;
+        if (enabled)
+        {
+            var exe = Process.GetCurrentProcess().MainModule?.FileName;
+            if (!string.IsNullOrEmpty(exe)) key.SetValue(ValueName, $"\"{exe}\"");
+        }
+        else
+        {
+            if (key.GetValue(ValueName) != null) key.DeleteValue(ValueName);
+        }
+    }
+}
+
+/// <summary>
+/// Runtime-drawn tray icon (no .ico asset needed): blue→violet gradient tile with
+/// the brand motif — speech bars pouring into text lines (parity with the macOS
+/// app icon, OmniFlow ADR-0008); while recording, a small accent dot marks live
+/// state.
+/// </summary>
+public static class AppIcon
+{
+    private static Icon? _idle;
+    private static Icon? _recording;
+
+    /// <summary>Returns the cached idle/recording icon (shared process-wide; never dispose).</summary>
+    public static Icon Create(bool recording = false)
+    {
+        if (recording)
+        {
+            _recording ??= Build(recording: true);
+            return _recording;
+        }
+        _idle ??= Build(recording: false);
+        return _idle;
+    }
+
+    private static Icon Build(bool recording)
+    {
+        using var bitmap = new Bitmap(32, 32);
+        using (var g = Graphics.FromImage(bitmap))
+        {
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            var tile = new Rectangle(1, 1, 30, 30);
+            using (var brush = new System.Drawing.Drawing2D.LinearGradientBrush(
+                       new Point(0, 0), new Point(32, 32),
+                       Color.FromArgb(88, 166, 255), Color.FromArgb(107, 77, 255)))
+            {
+                g.FillPath(brush, Theme.RoundedPath(tile, 8));
+            }
+
+            // Brand motif: five speech bars above two text lines (16k grid = 32px tile).
+            using var glyph = new SolidBrush(Color.FromArgb(242, 242, 246));
+            int[] heights = { 5, 8, 11, 8, 5 };
+            const int barW = 2, gap = 1;
+            int total = heights.Length * barW + (heights.Length - 1) * gap;
+            int x0 = (32 - total) / 2, cy = 13;
+            for (int i = 0; i < heights.Length; i++)
+            {
+                int bx = x0 + i * (barW + gap);
+                using var bar = Theme.RoundedPath(new Rectangle(bx, cy - heights[i] / 2, barW, heights[i]), 1);
+                g.FillPath(glyph, bar);
+            }
+            using (var line1 = Theme.RoundedPath(new Rectangle(10, 20, 12, 2), 1))
+            {
+                g.FillPath(glyph, line1);
+            }
+            using (var line2 = Theme.RoundedPath(new Rectangle(10, 24, 8, 2), 1))
+            {
+                g.FillPath(glyph, line2);
+            }
+
+            if (recording)
+            {
+                using var ring = new Pen(Theme.Chrome, 2f);
+                using var dot = new SolidBrush(Theme.Accent);
+                g.FillEllipse(dot, 22, 22, 8, 8);
+                g.DrawEllipse(ring, 21, 21, 10, 10);
+            }
+        }
+        return Icon.FromHandle(bitmap.GetHicon());
+    }
+}

@@ -158,3 +158,43 @@ jobs:
           if [ -f "$KPATH" ]; then
             security delete-keychain "$KPATH"
           fi
+
+  release-windows:
+    runs-on: windows-latest
+    needs: build-and-release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          case "$VERSION" in
+            ''|*[!0-9.]*) echo "Release tags must use semantic versioning, for example v0.3.1." >&2; exit 1 ;;
+          esac
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Stamp exe version
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import re
+          path = 'windows/src/OmniFlow/OmniFlow.csproj'
+          version = '${{ steps.version.outputs.version }}'
+          s = open(path, encoding='utf-8').read()
+          s = re.sub(r'<Version>[^<]+</Version>', '<Version>' + version + '</Version>', s, count=1)
+          open(path, 'w', encoding='utf-8').write(s)
+          PY
+
+      - name: Build single-file exe
+        run: dotnet publish windows/src/OmniFlow/OmniFlow.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:DebugType=none -p:DebugSymbols=false -o windows/dist
+
+      - name: Attach to release
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          make_latest: false
+          files: |
+            windows/dist/OmniFlow.exe

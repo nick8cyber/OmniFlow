@@ -9,8 +9,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/nick8cyber/OmniFlow/releases/latest/download/OmniFlow.dmg"><b>⬇ Download OmniFlow.dmg</b></a><br>
-  <sub>Works on all Macs (Apple Silicon + Intel)</sub>
+  <a href="https://github.com/nick8cyber/OmniFlow/releases/latest/download/OmniFlow.dmg"><b>⬇ Download OmniFlow.dmg</b></a> ·
+  <a href="https://github.com/nick8cyber/OmniFlow/releases/latest/download/OmniFlow.exe"><b>⬇ Download OmniFlow.exe</b></a><br>
+  <sub>macOS (Apple Silicon + Intel) · Windows 10/11 x64 — one project, one repository</sub>
 </p>
 
 ---
@@ -25,7 +26,10 @@
 
 ## Overview
 
-OmniFlow is a free Mac dictation app inspired by [Wispr Flow](https://wisprflow.ai/), [Superwhisper](https://superwhisper.com/), and [Monologue](https://www.monologue.to/). It gives you fast AI transcription, context-aware cleanup, and voice-driven text editing without a monthly subscription.
+OmniFlow is a free dictation app inspired by [Wispr Flow](https://wisprflow.ai/), [Superwhisper](https://superwhisper.com/), and [Monologue](https://www.monologue.to/). It gives you fast AI transcription, context-aware cleanup, and voice-driven text editing without a monthly subscription.
+
+- **macOS** — this repository root (Swift/AppKit, `Sources/`)
+- **Windows** — `windows/` (C#/.NET 8 WinForms tray app; spec in [`windows/README.md`](windows/README.md))
 
 ## Quick Start
 

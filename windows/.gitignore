@@ -1,0 +1,6 @@
+# Windows build artifacts
+dist/
+**/bin/
+**/obj/
+*.user
+design/overlay-shots/
