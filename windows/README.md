@@ -1,7 +1,7 @@
-# FreeFlow for Windows
+# OmniFlow for Windows
 
-Windows migration of [FreeFlow](https://github.com/zachlatta/freeflow) (macOS dictation app),
-rewritten as a native C# / .NET 8 tray application (WinForms, no Xcode/SPM dependency).
+Native C# / .NET 8 tray application — the Windows counterpart of the macOS OmniFlow
+dictation app (WinForms, no Xcode/SPM dependency).
 
 > This document is the authoritative spec for the Windows port. The repository-root
 > `README.md` and `AGENTS.md` describe the **macOS** app only — the platforms' features
@@ -32,15 +32,15 @@ Requires the .NET 8 SDK.
 
 ```cmd
 cd windows
-build.cmd          :: build + tests + publish single-file exe to windows\dist\FreeFlow.exe
+build.cmd          :: build + tests + publish single-file exe to windows\dist\OmniFlow.exe
 ```
 
 Or manually:
 
 ```cmd
-dotnet build FreeFlow.sln
-dotnet test  tests\FreeFlow.Tests\FreeFlow.Tests.csproj
-dotnet publish src\FreeFlow\FreeFlow.csproj -c Release -r win-x64 --self-contained true ^
+dotnet build OmniFlow.sln
+dotnet test  tests\OmniFlow.Tests\OmniFlow.Tests.csproj
+dotnet publish src\OmniFlow\OmniFlow.csproj -c Release -r win-x64 --self-contained true ^
   -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true ^
   -p:EnableCompressionInSingleFile=true -p:DebugType=none -p:DebugSymbols=false -o dist
 ```
@@ -49,7 +49,7 @@ The published exe is a single ~63 MB file (compression on, no symbols).
 
 ## Run
 
-1. Start `FreeFlow.exe`. First run shows setup: paste a **Gemini API key**
+1. Start `OmniFlow.exe`. First run shows setup: paste a **Gemini API key**
    ([aistudio.google.com/apikey](https://aistudio.google.com/apikey)); a **Groq API key**
    ([console.groq.com](https://console.groq.com)) is optional and enables the fallback path.
 2. **Hold the Caps Lock key** to dictate (the default hold key — rebindable in Settings → Dictation) — the interim transcript appears live in the overlay.
@@ -61,12 +61,12 @@ The published exe is a single ~63 MB file (compression on, no symbols).
    back to the cursor's monitor when unknown) and re-asserts topmost every 0.5 s so
    pinned-topmost windows (pinned Telegram etc.) cannot cover it.
 
-Settings live in `%APPDATA%\FreeFlow\settings.json`; API keys are DPAPI-encrypted at rest
+Settings live in `%APPDATA%\OmniFlow\settings.json`; API keys are DPAPI-encrypted at rest
 (`dpapi:` prefix, CurrentUser scope). Local pipeline history (last 20 entries) is
-`%APPDATA%\FreeFlow\history.json`.
+`%APPDATA%\OmniFlow\history.json`.
 
 **Save-on-failure:** when transcription fails, the recording is kept at
-`%APPDATA%\FreeFlow\last-failed.wav` and the tray menu gains a **Paste last recording** item
+`%APPDATA%\OmniFlow\last-failed.wav` and the tray menu gains a **Paste last recording** item
 that re-transcribes and pastes it (the file is deleted after a successful paste — a failed paste keeps the recording for another try — so a stale
 recording cannot be pasted twice by accident).
 
@@ -135,7 +135,7 @@ Key invariants, each fixed against a live failure:
 - Suppression markers are paired per press; auto-repeat after a leaked keydown never creates a
   false pairing.
 - Health telemetry: `EventsSeen` counter + `RecentKeyDownVks` ring, exposed in
-  `%APPDATA%\FreeFlow\hookstate.json` and the tray tooltip; an uninstalled hook is retried
+  `%APPDATA%\OmniFlow\hookstate.json` and the tray tooltip; an uninstalled hook is retried
   every 2 s.
 
 ### Capture (Services/AudioRecorder.cs, AudioChunkResampler.cs)
@@ -199,7 +199,7 @@ same product decisions, recorded as ADRs in its
 ```
 windows/
   build.cmd                                build + test + publish
-  src/FreeFlow/
+  src/OmniFlow/
     Program.cs                             entry point, single-instance mutex, first-run setup
     Core/
       Prompts.cs                           verbatim prompt texts (post-processing, command mode)
@@ -230,7 +230,7 @@ windows/
                                            regression-tested)
       SettingsForm(.Pages).cs              providers/shortcuts/behavior/vocabulary/history
       SetupForm.cs / HotkeyBox.cs          first-run wizard; shortcut capture control
-  tests/FreeFlow.Tests/                    deterministic tests (ports of Swift core tests + new
+  tests/OmniFlow.Tests/                    deterministic tests (ports of Swift core tests + new
                                            logic: retry policy via local TCP stub, tail-fitting,
                                            resampler, protocol builders, hook decisions)
   design/
@@ -241,7 +241,7 @@ windows/
 
 ## Diagnostics
 
-- `%APPDATA%\FreeFlow\hookstate.json` (updated every 2 s, counter only, no user content):
+- `%APPDATA%\OmniFlow\hookstate.json` (updated every 2 s, counter only, no user content):
   `installed`, hook `events` counter, `lastVk` + `recent` ring of last physical keydowns,
   `holdActive`, bound `holdVk`. A counter frozen while the user types = Windows removed the
   hook; an uninstalled hook is retried automatically.
@@ -251,7 +251,7 @@ windows/
 
 ## Privacy
 
-Same rules as upstream: no telemetry, no crash reporting, no FreeFlow server. Network traffic
+Same rules as upstream: no telemetry, no crash reporting, no OmniFlow server. Network traffic
 is provider calls only (Gemini, optionally Groq). Recorded audio is temporary and deleted right
 after transcription. `hookstate.json` contains counters and virtual-key codes only — never text
 or audio. History stores the last 20 dictations in plaintext when enabled (default, matching
