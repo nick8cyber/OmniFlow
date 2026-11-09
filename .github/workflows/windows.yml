@@ -14,6 +14,6 @@ jobs:
         with:
           dotnet-version: 8.0.x
       - name: Build
-        run: dotnet build windows/FreeFlow.sln
+        run: dotnet build windows/OmniFlow.sln
       - name: Test
-        run: dotnet test windows/tests/FreeFlow.Tests/FreeFlow.Tests.csproj --no-build
+        run: dotnet test windows/tests/OmniFlow.Tests/OmniFlow.Tests.csproj --no-build
