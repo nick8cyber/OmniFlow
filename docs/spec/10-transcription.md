@@ -1,6 +1,6 @@
 # Спецификация 10 — Транскрипция: провайдеры, протоколы, роутинг
 
-Референс: FreeFlow / OmniFlow, `Sources/TranscriptionService.swift`, `Sources/RealtimeTranscriptionService.swift`, `Sources/RealtimeTranscriptBackend.swift`, `Sources/GeminiTranscription.swift`, `Sources/GeminiLiveTranscription.swift`, `Sources/GeminiLiveTranscriptionService.swift`, `Sources/AppState.swift` (роутинг), `Sources/AudioRecorder.swift` (форматы аудио).
+Референс: OmniFlow, `Sources/TranscriptionService.swift`, `Sources/RealtimeTranscriptionService.swift`, `Sources/RealtimeTranscriptBackend.swift`, `Sources/GeminiTranscription.swift`, `Sources/GeminiLiveTranscription.swift`, `Sources/GeminiLiveTranscriptionService.swift`, `Sources/AppState.swift` (роутинг), `Sources/AudioRecorder.swift` (форматы аудио).
 
 Все сетевые вызовы транскрипции идут через `LLMAPITransport` (см. `11-postprocessing.md`, раздел «LLMAPITransport»): ephemeral `URLSession` на каждый запрос, кэш выключен, таймауты синхронизированы с `URLRequest.timeoutInterval`.
 

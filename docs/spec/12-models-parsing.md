@@ -1,6 +1,6 @@
 # Спецификация 12 — ModelConfiguration и парсеры (`TranscriptTextCore`)
 
-Референс: FreeFlow / OmniFlow, `Sources/ModelConfiguration.swift`, `Sources/TranscriptTextCore.swift`.
+Референс: OmniFlow, `Sources/ModelConfiguration.swift`, `Sources/TranscriptTextCore.swift`.
 
 ---
 

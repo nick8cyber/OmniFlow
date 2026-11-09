@@ -32,7 +32,7 @@ APP_EXECUTABLE = $(MACOS_DIR)/$(APP_NAME)
 - `ARCH ?= $(shell uname -m)`; спец-значение `universal`.
 - `SHELL_SCRIPTS = $(shell find .github/scripts .agents/skills -name '*.sh' -type f | LC_ALL=C sort)`
   (фактически: `.github/scripts/changelog-section.sh`,
-  `.agents/skills/freeflow-release/scripts/freeflow-release-check.sh`).
+  `.agents/skills/omniflow-release/scripts/omniflow-release-check.sh`).
 - `YAML_FILES = $(shell find .github -type f \( -name '*.yml' -o -name '*.yaml' \) | LC_ALL=C sort)`.
 - `RESOURCES = $(CONTENTS)/Resources`.
 

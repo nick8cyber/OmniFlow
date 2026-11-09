@@ -1,6 +1,6 @@
 # Спецификация 11 — Пост-обработка транскрипта
 
-Референс: FreeFlow / OmniFlow, `Sources/PostProcessingService.swift`, `Sources/LLMAPITransport.swift`, `Sources/LLMCooldownManager.swift`, `Sources/TranscriptTextCore.swift` (санитайзеры и instruction guard), `Sources/AppContextService.swift` (контекстный промпт), `Sources/AppState.swift` (маршрутизация, voice macros, preserve exact wording).
+Референс: OmniFlow, `Sources/PostProcessingService.swift`, `Sources/LLMAPITransport.swift`, `Sources/LLMCooldownManager.swift`, `Sources/TranscriptTextCore.swift` (санитайзеры и instruction guard), `Sources/AppContextService.swift` (контекстный промпт), `Sources/AppState.swift` (маршрутизация, voice macros, preserve exact wording).
 
 Все запросы идут на `{baseURL}/chat/completions` (OpenAI-совместимый, по умолчанию `https://api.groq.com/openai/v1`). Транспортом — `LLMAPITransport` (раздел 8).
 

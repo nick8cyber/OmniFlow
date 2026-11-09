@@ -1,0 +1,4 @@
+interface:
+  display_name: "OmniFlow Release"
+  short_description: "Prepare and publish OmniFlow semver releases."
+  default_prompt: "Prepare a new OmniFlow release."

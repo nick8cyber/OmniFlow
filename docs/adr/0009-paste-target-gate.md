@@ -14,7 +14,7 @@
 ## Решение
 
 Гейт `PasteGate` (чистая логика, тестируемая без сессии; Swift `Sources/PasteGate.swift`,
-C# `windows/src/FreeFlow/Core/PasteGate.cs`) вычисляется НЕПОСРЕДСТВЕННО перед
+C# `windows/src/OmniFlow/Core/PasteGate.cs`) вычисляется НЕПОСРЕДСТВЕННО перед
 нажатием клавиш:
 
 1. **Edit-сессии** (трансформ выделения): перечитать текущее выделение цели

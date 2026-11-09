@@ -5,10 +5,6 @@
 <h1 align="center">OmniFlow</h1>
 
 <p align="center">
-  <sub>Based on <a href="https://github.com/zachlatta/freeflow">FreeFlow</a> by Zach Latta (MIT). Extended with Gemini 3.5 Transcribe (batch + Live) and future multi-channel capture.</sub>
-</p>
-
-<p align="center">
   Free and open source alternative to <a href="https://wisprflow.ai">Wispr Flow</a>, <a href="https://superwhisper.com">Superwhisper</a>, and <a href="https://monologue.to">Monologue</a>.
 </p>
 

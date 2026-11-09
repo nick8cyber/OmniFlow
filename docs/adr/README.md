@@ -6,7 +6,7 @@
 
 | ADR | Статус | Решение |
 |---|---|---|
-| [0001](0001-cleanroom-rewrite.md) | accepted | Чистовая переписка OmniFlow с нуля вместо форка FreeFlow |
+| [0001](0001-cleanroom-rewrite.md) | accepted | Чистовая переписка OmniFlow с нуля вместо форка апстрима |
 | [0002](0002-gemini-live-first.md) | accepted | Live-канал включается сразу; адаптивный финиш без turnComplete |
 | [0003](0003-rate-limits-fail-fast.md) | accepted | 429/4xx — fail fast, ретраи только транзиентных ошибок |
 | [0004](0004-empty-recording-gate.md) | accepted | Гейт пустой записи до провайдера (длительность/речь/пик) |

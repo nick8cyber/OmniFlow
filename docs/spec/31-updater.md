@@ -83,7 +83,7 @@ struct GitHubReleaseAsset: Decodable {
 
 ---
 
-## 3. Каналы сборок (FreeFlowBuildTag)
+## 3. Каналы сборок (OmniFlowBuildTag)
 
 - Тег сборки читается из Info.plist: ключ **`OmniFlowBuildTag`**
   (`Bundle.main.infoDictionary?["OmniFlowBuildTag"] as? String`).
