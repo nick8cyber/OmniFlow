@@ -53,7 +53,9 @@ enum AIProviderTests {
                                                             fallback: "openai/gpt-oss-20b"),
                                 AIProvider.geminiLLMModel)
         TestSupport.expectEqual(AIProvider.adjustedLLMModel(current: "gemini-2.5-flash", provider: .gemini,
-                                                            fallback: "x"), "gemini-2.5-flash")
+                                                            fallback: "x"), AIProvider.geminiLLMModel)
+        TestSupport.expectEqual(AIProvider.adjustedLLMModel(current: "gemini-3.6-flash", provider: .gemini,
+                                                            fallback: "x"), "gemini-3.6-flash")
         TestSupport.expectEqual(AIProvider.adjustedLLMModel(current: "gemini-2.5-flash", provider: .openAICompatible,
                                                             fallback: "qwen/qwen3.6-27b"), "qwen/qwen3.6-27b")
         TestSupport.expectEqual(AIProvider.adjustedLLMModel(current: "openai/gpt-oss-20b", provider: .openAICompatible,
@@ -61,8 +63,13 @@ enum AIProviderTests {
     }
 
     private static func testGeminiSkipsLLMCleanup() {
-        TestSupport.expect(AIProvider.gemini.skipsLLMCleanup, "Gemini must skip LLM cleanup")
-        TestSupport.expect(!AIProvider.openAICompatible.skipsLLMCleanup,
+        TestSupport.expect(AIProvider.gemini.skipsLLMCleanup(geminiTranscriptionMode: .smart),
+                           "Gemini smart mode must skip LLM cleanup")
+        TestSupport.expect(!AIProvider.gemini.skipsLLMCleanup(geminiTranscriptionMode: .verbatim),
+                           "Gemini verbatim mode must run OmniFlow's LLM cleanup")
+        TestSupport.expect(!AIProvider.openAICompatible.skipsLLMCleanup(geminiTranscriptionMode: .smart),
                            "OpenAI-compatible must keep LLM cleanup")
+        TestSupport.expect(!AIProvider.openAICompatible.skipsLLMCleanup(geminiTranscriptionMode: .verbatim),
+                           "OpenAI-compatible ignores the Gemini mode")
     }
 }

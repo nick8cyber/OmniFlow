@@ -60,6 +60,13 @@ material to the change, use:
 make ARCH="$(uname -m)" CODESIGN_IDENTITY=-
 ```
 
+An ad-hoc build is a compile check only — never install it to `/Applications`:
+it wipes TCC permissions (bundle-id/signature mismatch). To install a local
+build, follow `docs/runbooks/local-build-install.md`: build with the
+production `Developer ID Application` identity and production bundle id,
+verify `codesign -dr -` matches the installed app, and install only while
+OmniFlow is quit.
+
 Do not claim end-to-end behavior is verified from type-checking or a unit test.
 Changes involving microphone capture, global shortcuts, Accessibility, Screen
 Recording, clipboard or paste behavior, updater behavior, or the signed app

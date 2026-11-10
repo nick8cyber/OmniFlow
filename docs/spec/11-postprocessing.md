@@ -552,7 +552,7 @@ split по { "\n", ",", ";" } → trim каждого → filter непусты�
 
 ## 11. Пайплайн в AppState (`processTranscript`)
 
-Вход: `rawTranscript` (после `parseTranscriptCommands` — выше по потоку вырезается опциональная команда press-enter), `intent`, `context`, сервис, `customVocabulary`, `customSystemPrompt`, `outputLanguage`, `preserveExactWording`, `skipsLLMCleanup` (= `aiProvider.skipsLLMCleanup`, т.е. провайдер Gemini).
+Вход: `rawTranscript` (после `parseTranscriptCommands` — выше по потоку вырезается опциональная команда press-enter), `intent`, `context`, сервис, `customVocabulary`, `customSystemPrompt`, `outputLanguage`, `preserveExactWording`, `skipsLLMCleanup` (= `aiProvider.skipsLLMCleanup(geminiTranscriptionMode:)`, т.е. провайдер Gemini в режиме `smart`, ADR-0010).
 
 Строгий порядок (важно для 1-в-1 воспроизведения):
 
@@ -566,7 +566,9 @@ split по { "\n", ",", ";" } → trim каждого → filter непусты�
 4. **Preserve exact wording / built-in cleanup** (`preserveExactWording || skipsLLMCleanup`):
    - Output Language пуст → `(trimmedRaw, .preservedExactWording | .builtInProviderCleanup, "")` — LLM полностью
      пропускается. `.builtInProviderCleanup` возвращается, когда пропуск вызван
-     провайдером Gemini (он сам возвращает чистый текст), а не тумблером пользователя.
+     провайдером Gemini в режиме `smart` (он сам возвращает чистый текст), а не
+     тумблером пользователя. При `verbatim`-режиме Gemini `skipsLLMCleanup` ложен —
+     дословный транскрипт идёт в обычный cleanup из пункта 5.
    - Output Language задан → `translateVerbatim(transcript:, targetLanguage:)` — иначе перевод бы молча потерялся; промпт сохраняет филлер/регистр/профанити 1:1.
    - Ошибка перевода → `(trimmedRaw, .preservedExactWordingTranslationFailedFallback, "")`.
 5. Обычный cleanup → `postProcess(...)`; успех → `(result.transcript, .postProcessingSucceeded)`; ошибка → `(trimmedRaw, .postProcessingFailedFallback, "")`.

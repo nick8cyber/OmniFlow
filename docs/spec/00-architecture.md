@@ -100,7 +100,7 @@
 | `Sources/Settings/*.swift` (по файлу на вкладку) + `Sources/UITheme.swift` | Окно настроек 780×540: корень `SettingsView` (сайдбар 188 по `SettingsTab`), вкладки `GeneralSettingsView`, `DictationSettingsView`, `AIProviderSettingsView`, `ProcessingSettingsView`, `VoiceMacrosSettingsView`, `RunLogView` (History; + `RunLogEntryView`, `PipelineStepView`, `AudioPlayerView`, `AudioPlayerDelegate`, `FlowLayout`), `DebugSettingsView`; общие поля провайдера (`ProviderSettingsFields` → `GeminiProviderFields` / `OpenAIProviderFields`) в `SettingsShared.swift`; UI-кит в `UITheme.swift` (`SettingsCard`, `FormRow`, `InfoBanner`, `CopyButton`, `EmptyStateView`, `FnAdviceBanner`, `ProviderCard( Pair)`, `OverlayPreviewCard`, `BrandHeader`). | `@EnvironmentObject AppState` (`UpdateManager.shared` в General) |
 | `Sources/SetupView.swift` | `struct SetupView: View` (`onComplete: () -> Void`) — визард из 7 шагов: Welcome → Choose Provider (`ProviderCardPair` + ключ + провайдер-зависимая валидация, `SetupProviderSettingsSheet`) → Permissions (3 разрешения на одном экране, поллинг 1 c) → Shortcuts (`DictationShortcutEditor`) → Personalize (Edit Mode, словарь, логин, экран оверлея) → Test (`SetupTestHotkeyHarness`) → All Set. | `@EnvironmentObject AppState`, `@StateObject SetupTestHotkeyHarness` |
 | `Sources/ModelDropdownView.swift` | `struct ModelDropdownView: View` — выпадающий список моделей из каталогов `ModelConfiguration` (llm/vision/transcription + провайдер-специфичные списки) с «Custom…»-эскейпом. | — |
-| `Sources/AIProvider.swift` | `enum AIProvider: String` (`gemini` / `openAICompatible`) — развилка провайдера: заголовки/иконки, `skipsLLMCleanup`, миграция из `transcription_model`, `adjustedBatchModel`/`adjustedLiveModel`, `geminiValidationBaseURL`. | Foundation |
+| `Sources/AIProvider.swift` | `enum AIProvider: String` (`gemini` / `openAICompatible`) — развилка провайдера: заголовки/иконки, `skipsLLMCleanup(geminiTranscriptionMode:)`, миграция из `transcription_model`, `adjustedBatchModel`/`adjustedLiveModel`, `geminiValidationBaseURL`; `enum GeminiTranscriptionMode: String` (`smart`/`verbatim`) — режим транскрипции Gemini (`liveWireValue`/`batchWireValue`, ADR-0010). | Foundation |
 
 ### 1.9 Уведомления между слоями
 
@@ -547,7 +547,10 @@ private enum SessionIntent {
 10. `try Task.checkCancellation()`; **bootstrap**: непустой
     `parsedTranscript.transcript.trimmed` → `lastTranscript` (main) — чтобы Paste Again
     имел свежий текст даже при падении пост-обработки;
-11. **контекст**: `appContext = sessionContext` ИЛИ `await inFlightContextTask?.value`
+11. **контекст**: `appContext = sessionContext` ИЛИ (только если
+    `sessionNeedsLLMContext` — cleanup/перевод/command; verbatim+preserve и
+    smart без output language захват вообще не запускают, см. 21 §6.2)
+    `await contextAfterWait(inFlightContextTask, seconds: 2.5)`
     ИЛИ `fallbackContextAtStop()` (frontmost app + заголовок окна через AX,
     `currentActivity = "Could not refresh app context at stop time; using text-only post-processing."`,
     `screenshotError = "No app context captured before stop"`); `try Task.checkCancellation()`;
@@ -955,7 +958,8 @@ OpenAI-сервис: `deriveWebSocketURL` — `https→wss`, `http→ws`; хво
 Gemini Live: URL `<googleapis-host>/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent`
 (не-Google host → `wss://generativelanguage.googleapis.com` + path); ключ в заголовке
 `x-goog-api-key`; setup: `{"setup": {"model": "models/<model>", "generationConfig":
-{"responseModalities": ["TEXT"]}, "inputAudioTranscription": {"mode": "SMART",
+{"responseModalities": ["TEXT"]}, "inputAudioTranscription": {"mode": <liveWireValue —
+"SMART"/"VERBATIM" из `gemini_transcription_mode`>,
 "custom_vocabulary": [...]?}}}`; аудио — `realtimeInput.audio {mimeType: "audio/pcm;rate=<sampleRate>", data: base64}`;
 конец — `realtimeInput.audioStreamEnd: true`; финал — `turnComplete`/`generationComplete`
 с накопленным `inputTranscription.text` (+`modelTurn.parts[].text`); ошибка соединения до

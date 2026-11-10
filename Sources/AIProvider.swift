@@ -33,9 +33,11 @@ enum AIProvider: String, CaseIterable, Identifiable {
     }
 
     /// True when the pipeline must not call the LLM cleanup endpoint because
-    /// the transcription provider already returns final text.
-    var skipsLLMCleanup: Bool {
-        self == .gemini
+    /// the transcription provider already returns final text. Gemini only
+    /// qualifies in smart mode — a verbatim transcript is literal speech that
+    /// OmniFlow's own cleanup then shapes (ADR-0010).
+    func skipsLLMCleanup(geminiTranscriptionMode: GeminiTranscriptionMode) -> Bool {
+        self == .gemini && geminiTranscriptionMode == .smart
     }
 
     static let storageKey = "ai_provider"
@@ -49,8 +51,13 @@ enum AIProvider: String, CaseIterable, Identifiable {
     static let geminiValidationBaseURL = "https://generativelanguage.googleapis.com/v1beta/openai"
     /// LLM for the Gemini provider's OpenAI-compatible paths (Edit Mode,
     /// verbatim translation). Vision-capable, so it also serves context.
-    static let geminiLLMModel = "gemini-2.5-flash"
-    static let geminiContextModels = ["gemini-2.5-flash", "gemini-2.0-flash"]
+    /// Free-tier friendly: Google deprecated the 2.x ids below and auto-routes
+    /// gemini-2.5-flash requests to gemini-3.5-flash-lite from 2026-12-01.
+    static let geminiLLMModel = "gemini-3.1-flash-lite"
+    static let geminiContextModels = ["gemini-3.1-flash-lite", "gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash"]
+    private static let deprecatedGeminiLLMModels: Set<String> = [
+        "gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash",
+    ]
 
     /// First-run migration: an install without the stored key keeps whatever
     /// behaviour its transcription model implies (Gemini models already route
@@ -81,7 +88,8 @@ enum AIProvider: String, CaseIterable, Identifiable {
         let isGeminiModel = current.lowercased().contains("gemini")
         switch provider {
         case .gemini:
-            return isGeminiModel ? current : geminiLLMModel
+            return isGeminiModel && !deprecatedGeminiLLMModels.contains(current.lowercased())
+                ? current : geminiLLMModel
         case .openAICompatible:
             return isGeminiModel ? fallback : current
         }
@@ -97,6 +105,30 @@ enum AIProvider: String, CaseIterable, Identifiable {
             return isGeminiModel ? current : geminiLiveModel
         case .openAICompatible:
             return isGeminiModel ? "" : current
+        }
+    }
+}
+
+/// The two transcription modes Gemini transcribe models accept on the wire
+/// (ADR-0010). `smart` runs the provider's built-in cleanup and OmniFlow's
+/// LLM cleanup stays off; `verbatim` returns literal speech (fillers,
+/// repetitions, false starts) that OmniFlow's own cleanup then shapes —
+/// that is the only "cleanup aggressiveness" dial the API exposes.
+enum GeminiTranscriptionMode: String, CaseIterable, Identifiable {
+    case smart
+    case verbatim
+
+    var id: String { rawValue }
+
+    /// Live API (`inputAudioTranscription.mode`) wants uppercase.
+    var liveWireValue: String { rawValue.uppercased() }
+    /// Interactions batch API (`transcription_config.mode.type`) wants lowercase.
+    var batchWireValue: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .smart: return "Smart"
+        case .verbatim: return "Verbatim"
         }
     }
 }

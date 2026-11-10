@@ -52,12 +52,14 @@ class TranscriptionService {
     private let transcriptionModel: String
     private let language: String?
     private let customVocabulary: String
+    private let geminiTranscriptionMode: GeminiTranscriptionMode
 
     init(apiKey: String,
          baseURL: String = "https://api.groq.com/openai/v1",
          transcriptionModel: String = "whisper-large-v3",
          language: String? = nil,
-         customVocabulary: String = "") throws {
+         customVocabulary: String = "",
+         geminiTranscriptionMode: GeminiTranscriptionMode = .smart) throws {
         self.apiKey = apiKey
         var model = transcriptionModel.trimmingCharacters(in: .whitespacesAndNewlines)
         if model.isEmpty {
@@ -78,6 +80,7 @@ class TranscriptionService {
             self.language = nil
         }
         self.customVocabulary = customVocabulary
+        self.geminiTranscriptionMode = geminiTranscriptionMode
     }
 
     private var transcriptionTimeoutSeconds: TimeInterval {
@@ -398,7 +401,8 @@ class TranscriptionService {
                 model: transcriptionModel,
                 audioData: audioData,
                 mimeType: audioContentType(for: fileURL.lastPathComponent),
-                customVocabulary: customVocabulary)
+                customVocabulary: customVocabulary,
+                mode: geminiTranscriptionMode)
         } catch {
             throw TranscriptionError.audioPreparationFailed(error.localizedDescription)
         }

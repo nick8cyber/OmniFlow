@@ -219,14 +219,23 @@ Model: <model>
 - Действия: `contextCaptureTask?.cancel()`; `capturedContext = nil`; индикаторы: `lastContextSummary = "Collecting app context..."`, `lastContextScreenshotStatus = "Collecting screenshot..."`.
 - `contextCaptureTask = Task { … }`: `await contextService.collectContext()`; затем на MainActor — `capturedContext = context`, заполнение `lastContextSummary` (= `currentActivity`), `lastContextScreenshotDataURL`, статус скриншота (`screenshotError ?? "available (<mime>)"`), `lastContextAppName/BundleIdentifier/WindowTitle/SelectedText`, `lastContextLLMPrompt` (= `contextPrompt ?? ""`), `lastPostProcessingStatus = "App context captured"`, затем `handleScreenshotCaptureIssue(context.screenshotError)`.
 - `handleScreenshotCaptureIssue`: при ошибке-правах на запись экрана (`isScreenCapturePermissionError`) — в command-режиме фатально: отмена realtime, `audioRecorder.cancelRecording()`, `contextCaptureTask`/`capturedContext` = nil, `isRecording = false`, `shortcutSessionController.reset()`, `statusText = "Screenshot Required"`, оверлей, звук «Basso», алерт; в диктовке — только флаг `hasScreenRecordingPermission = false` без остановки. Прочие (транзиентные) ошибки — игнорируются, запись продолжается без контекста.
-- Сервис пересобирается при изменении `apiKey`/`apiBaseURL` (`rebuildContextService()`): `AppContextService(apiKey:, baseURL: apiBaseURL, customContextPrompt:, contextModel:, screenshotMaxDimension: CGFloat(contextScreenshotMaxDimension))`.
+- Сервис пересобирается при изменении `apiKey`/`apiBaseURL` (`rebuildContextService()`): `AppContextService(apiKey: resolvedLLMAPIKey, baseURL: resolvedLLMBaseURL, customContextPrompt:, contextModel:, screenshotMaxDimension: CGFloat(contextScreenshotMaxDimension))`. На Gemini без кастомного base URL ключ — `resolvedTranscriptionAPIKey` (Gemini-ключ из transcription-override или главного поля), эндпоинт — `geminiValidationBaseURL`; иначе — `apiKey` + пользовательский/дефолтный OpenAI-compatible URL.
 
 ### 6.2 Стоп записи: приоритет контекста (в `stopAndTranscribe`)
 
 В момент `stopRecording` фиксируются: `sessionContext = capturedContext`, `inFlightContextTask = contextCaptureTask`, оба поля сбрасываются. Выбор финального контекста (и в успешной ветке, и в ветке ошибки транскрипции):
 
+0. **Сессия без LLM-потребителей** (`sessionNeedsLLMContext == false` — обычная
+   диктовка в verbatim с «LLM cleanup» OFF или в smart без output language):
+   `startContextCapture` вообще не запускает `collectContext()` — нет
+   скриншота и запроса контекстной модели; `capturedContext` собирается
+   синхронно из selection snapshot, `lastContextScreenshotStatus =
+   "Context inference skipped — session inserts verbatim"`.
 1. `sessionContext` (контекст, готовый на момент остановки) — приоритет;
-2. иначе дождаться `inFlightContextTask?.value` (запрос, ещё летевший при остановке);
+2. иначе — только когда `sessionNeedsLLMContext` — дождаться
+   `contextAfterWait(inFlightContextTask, seconds: 2.5)`: первый
+   завершившийся побеждает, при превышении капа — `nil`; ветка ошибки
+   транскрипции ждёт всегда с тем же капом (контекст там нужен лишь истории);
 3. иначе `fallbackContextAtStop()`.
 
 ### 6.3 `fallbackContextAtStop()`

@@ -126,7 +126,8 @@ struct VoiceMacro: Codable, Identifiable, Equatable {
 /// Развилка провайдера (Sources/AIProvider.swift, спека 10 §1.1)
 enum AIProvider: String, CaseIterable, Identifiable {
     case gemini, openAICompatible
-    var skipsLLMCleanup: Bool      // true только у .gemini
+    func skipsLLMCleanup(geminiTranscriptionMode: GeminiTranscriptionMode) -> Bool
+                                     // true только у .gemini + режим smart
     static func migrate(stored: String?, transcriptionModel: String) -> AIProvider
     static func adjustedBatchModel(current: String, provider: AIProvider) -> String
     static func adjustedLiveModel(current: String, provider: AIProvider) -> String

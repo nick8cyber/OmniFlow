@@ -277,6 +277,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 AppSettingsStorage.save(apiKey, account: "groq_api_key")
             }
             rebuildContextService()
+            refreshAvailableModels()
         }
     }
     @Published var apiBaseURL: String {
@@ -288,6 +289,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 AppSettingsStorage.save(trimmed, account: "api_base_url")
             }
             rebuildContextService()
+            refreshAvailableModels()
         }
     }
     @Published var transcriptionAPIURL: String {
@@ -309,6 +311,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             } else {
                 AppSettingsStorage.save(transcriptionAPIKey, account: "transcription_api_key")
             }
+            refreshAvailableModels()
         }
     }
     @Published var transcriptionModel: String {
@@ -329,6 +332,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
             rebuildContextService()
         }
     }
+    /// Model ids fetched from `GET {resolvedLLMBaseURL}/models` — feeds the
+    /// settings dropdowns; the hardcoded lists stay as fallback while empty.
+    @Published private(set) var availableLLMModels: [String] = []
+    private var modelListTask: Task<Void, Never>?
+    private var modelListGeneration = 0
     @Published var holdShortcut: ShortcutBinding {
         didSet { persistShortcut(holdShortcut, key: "hold_shortcut"); restartHotkeyMonitoring() }
     }
@@ -421,6 +429,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
     @Published var realtimeStreamingModel: String {
         didSet { UserDefaults.standard.set(realtimeStreamingModel, forKey: "realtime_streaming_model") }
+    }
+    @Published var geminiTranscriptionMode: GeminiTranscriptionMode {
+        didSet { UserDefaults.standard.set(geminiTranscriptionMode.rawValue, forKey: "gemini_transcription_mode") }
     }
     @Published var lastFailedAudioFileName: String {
         didSet { UserDefaults.standard.set(lastFailedAudioFileName, forKey: "last_failed_audio_file") }
@@ -608,6 +619,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         shortcutStartDelay = max(0, UserDefaults.standard.double(forKey: "shortcut_start_delay"))
         realtimeStreamingEnabled = UserDefaults.standard.bool(forKey: "realtime_streaming_enabled")
         realtimeStreamingModel = UserDefaults.standard.string(forKey: "realtime_streaming_model") ?? ""
+        geminiTranscriptionMode = GeminiTranscriptionMode(
+            rawValue: UserDefaults.standard.string(forKey: "gemini_transcription_mode") ?? "") ?? .smart
         lastFailedAudioFileName = UserDefaults.standard.string(forKey: "last_failed_audio_file") ?? ""
         dictationAudioInterruptionEnabled = UserDefaults.standard.bool(forKey: "dictation_audio_interruption_enabled")
         preserveClipboard = UserDefaults.standard.object(forKey: "preserve_clipboard") as? Bool ?? true
@@ -626,12 +639,19 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }()
         selectedMicrophoneID = UserDefaults.standard.string(forKey: "selected_microphone_id") ?? "default"
 
+        let initialProvider = AIProvider.migrate(
+            stored: UserDefaults.standard.string(forKey: AIProvider.storageKey),
+            transcriptionModel: UserDefaults.standard.string(forKey: "transcription_model")
+                ?? Self.defaultTranscriptionModel)
+        let initialLLMBaseURL = AppSettingsStorage.load(account: "api_base_url") ?? ""
         contextService = Self.makeAppContextService(
-            apiKey: AppSettingsStorage.load(account: "groq_api_key") ?? "",
-            baseURL: {
-                let stored = AppSettingsStorage.load(account: "api_base_url") ?? ""
-                return stored.isEmpty ? Self.defaultAPIBaseURL : stored
-            }(),
+            apiKey: Self.resolveLLMAPIKey(
+                provider: initialProvider,
+                apiBaseURL: initialLLMBaseURL,
+                apiKey: AppSettingsStorage.load(account: "groq_api_key") ?? "",
+                transcriptionAPIKey: AppSettingsStorage.load(account: "transcription_api_key") ?? ""),
+            baseURL: Self.resolveLLMBaseURL(provider: initialProvider,
+                                            apiBaseURL: initialLLMBaseURL),
             customContextPrompt: UserDefaults.standard.string(forKey: "custom_context_prompt") ?? "",
             contextModel: UserDefaults.standard.string(forKey: "context_model") ?? Self.defaultContextModel,
             contextScreenshotMaxDimension: Self.normalizedContextScreenshotMaxDimension(
@@ -653,9 +673,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
         postProcessingModel = AIProvider.adjustedLLMModel(current: postProcessingModel,
                                                           provider: aiProvider,
                                                           fallback: Self.defaultPostProcessingModel)
+        postProcessingFallbackModel = AIProvider.adjustedLLMModel(current: postProcessingFallbackModel,
+                                                                  provider: aiProvider,
+                                                                  fallback: Self.defaultPostProcessingFallbackModel)
         contextModel = AIProvider.adjustedLLMModel(current: contextModel,
                                                    provider: aiProvider,
                                                    fallback: Self.defaultContextModel)
+        refreshAvailableModels()
         Self.writeRecordingStateFlag(false)
 
         overlayManager.onStopButtonPressed = { [weak self] in
@@ -1354,6 +1378,32 @@ final class AppState: ObservableObject, @unchecked Sendable {
         contextCaptureTask?.cancel()
         capturedContext = nil
         overlayManager.updateTargetApp("")
+        // Only LLM-consuming sessions (cleanup, verbatim translation, command
+        // transform) use the captured context. A plain preserved/smart paste
+        // would burn a context-model request per dictation on a summary
+        // nothing reads — and worse, its await used to hold the insertion.
+        guard Self.sessionNeedsLLMContext(
+                intent: currentSessionIntent,
+                preserveExactWording: preserveExactWording,
+                skipsLLMCleanup: aiProvider.skipsLLMCleanup(
+                    geminiTranscriptionMode: geminiTranscriptionMode),
+                outputLanguage: outputLanguage) else {
+            contextCaptureTask = nil
+            lastContextScreenshotStatus = "Context inference skipped — session inserts verbatim"
+            let snapshot = contextService.collectSelectionSnapshot()
+            capturedContext = AppContext(appName: snapshot.appName,
+                                         bundleIdentifier: snapshot.bundleIdentifier,
+                                         windowTitle: snapshot.windowTitle,
+                                         selectedText: snapshot.selectedText,
+                                         currentActivity: "Context inference skipped: verbatim insertion.",
+                                         contextSystemPrompt: nil,
+                                         contextPrompt: nil,
+                                         screenshotDataURL: nil,
+                                         screenshotMimeType: nil,
+                                         screenshotError: "Skipped: session does not consume context")
+            overlayManager.updateTargetApp(snapshot.appName ?? "")
+            return
+        }
         lastContextScreenshotStatus = "Collecting screenshot..."
         let service = contextService
         contextCaptureTask = Task { () -> AppContext in
@@ -1363,6 +1413,39 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 self?.overlayManager.updateTargetApp(context.appName ?? "")
             }
             return context
+        }
+    }
+
+    /// Does any downstream consumer need the captured context this session?
+    /// Command transforms and every non-preserved path consume it; a verbatim
+    /// or smart paste with no output language does not.
+    private static func sessionNeedsLLMContext(intent: SessionIntent,
+                                       preserveExactWording: Bool,
+                                       skipsLLMCleanup: Bool,
+                                       outputLanguage: String) -> Bool {
+        intent.isCommandMode
+            || !(preserveExactWording || skipsLLMCleanup)
+            || !outputLanguage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// How long the pipeline still waits for the in-flight context capture
+    /// once speech has ended. The capture starts at recording start, so a
+    /// straggler is by definition slow — the paste degrades to the text-only
+    /// fallback instead of adding multi-second tail latency.
+    private static let contextAwaitCapSeconds: TimeInterval = 2.5
+
+    /// First completed wins: the context value, or nil when the cap elapses.
+    private static func contextAfterWait(_ task: Task<AppContext, Never>?,
+                                         seconds: TimeInterval) async -> AppContext? {
+        guard let task else { return nil }
+        return await withTaskGroup(of: AppContext?.self) { group in
+            group.addTask { await task.value }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                return nil
+            }
+            defer { group.cancelAll() }
+            return await group.next() ?? nil
         }
     }
 
@@ -1525,7 +1608,20 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
                 var appContext = sessionContext
                 if appContext == nil {
-                    appContext = await inFlightContextTask?.value
+                    // Only the LLM paths (cleanup, verbatim translation,
+                    // command transform) consume the context — a plain
+                    // preserved/smart paste must not block on a straggling
+                    // context call. LLM paths wait, but with a hard cap.
+                    let llmWillConsumeContext = Self.sessionNeedsLLMContext(
+                        intent: sessionIntent,
+                        preserveExactWording: self.preserveExactWording,
+                        skipsLLMCleanup: self.aiProvider.skipsLLMCleanup(
+                            geminiTranscriptionMode: self.geminiTranscriptionMode),
+                        outputLanguage: self.outputLanguage)
+                    if llmWillConsumeContext {
+                        appContext = await Self.contextAfterWait(inFlightContextTask,
+                                                                 seconds: Self.contextAwaitCapSeconds)
+                    }
                 }
                 if appContext == nil {
                     appContext = self.fallbackContextAtStop()
@@ -1546,7 +1642,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                                                           customSystemPrompt: self.customSystemPrompt,
                                                           outputLanguage: self.outputLanguage,
                                                           preserveExactWording: self.preserveExactWording,
-                                                          skipsLLMCleanup: self.aiProvider.skipsLLMCleanup)
+                                                          skipsLLMCleanup: self.aiProvider.skipsLLMCleanup(geminiTranscriptionMode: self.geminiTranscriptionMode))
                 try Task.checkCancellation()
                 await self.completeTranscription(result: result,
                                                  parsedTranscript: parsedTranscript,
@@ -1704,7 +1800,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         guard isTranscribing else { return }
         var appContext = sessionContext
         if appContext == nil {
-            appContext = await inFlightContextTask?.value
+            appContext = await Self.contextAfterWait(inFlightContextTask,
+                                                     seconds: Self.contextAwaitCapSeconds)
         }
         if appContext == nil {
             appContext = fallbackContextAtStop()
@@ -2041,9 +2138,36 @@ final class AppState: ObservableObject, @unchecked Sendable {
         postProcessingModel = AIProvider.adjustedLLMModel(current: postProcessingModel,
                                                           provider: provider,
                                                           fallback: Self.defaultPostProcessingModel)
+        postProcessingFallbackModel = AIProvider.adjustedLLMModel(current: postProcessingFallbackModel,
+                                                                  provider: provider,
+                                                                  fallback: Self.defaultPostProcessingFallbackModel)
         contextModel = AIProvider.adjustedLLMModel(current: contextModel,
                                                    provider: provider,
                                                    fallback: Self.defaultContextModel)
+        refreshAvailableModels()
+    }
+
+    /// Refetches the provider's model catalog for the settings dropdowns.
+    /// Key/endpoint changes trigger it from their didSets; also called when
+    /// the provider settings view appears.
+    func refreshAvailableModels() {
+        modelListTask?.cancel()
+        modelListGeneration += 1
+        let generation = modelListGeneration
+        let apiKey = resolvedLLMAPIKey
+        let baseURL = resolvedLLMBaseURL
+        guard !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            availableLLMModels = []
+            return
+        }
+        modelListTask = Task { [weak self] in
+            let models = await ModelListService.fetchLLMModels(baseURL: baseURL, apiKey: apiKey)
+            guard !Task.isCancelled else { return }
+            Task { @MainActor in
+                guard self?.modelListGeneration == generation else { return }
+                self?.availableLLMModels = models
+            }
+        }
     }
 
     // MARK: Realtime streaming
@@ -2058,6 +2182,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 model: model,
                 customVocabulary: customVocabulary,
                 sampleRate: AudioRecorder.realtimeSampleRate,
+                transcriptionMode: geminiTranscriptionMode,
                 language: resolvedTranscriptionLanguage)
             start(realtimeService: GeminiLiveTranscriptionService(config: configuration))
         } else if GeminiTranscription.handlesModel(transcriptionModel) {
@@ -2112,7 +2237,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     func makeAppContextService() -> AppContextService {
-        Self.makeAppContextService(apiKey: apiKey,
+        Self.makeAppContextService(apiKey: resolvedLLMAPIKey,
                                    baseURL: resolvedLLMBaseURL,
                                    customContextPrompt: customContextPrompt,
                                    contextModel: contextModel,
@@ -2128,7 +2253,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                                  baseURL: resolvedTranscriptionBaseURL,
                                  transcriptionModel: transcriptionModel,
                                  language: resolvedTranscriptionLanguage,
-                                 customVocabulary: customVocabulary)
+                                 customVocabulary: customVocabulary,
+                                 geminiTranscriptionMode: geminiTranscriptionMode)
     }
 
     private var resolvedTranscriptionAPIKey: String {
@@ -2149,18 +2275,46 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     private var resolvedPostProcessingAPIKey: String {
-        apiKey
+        resolvedLLMAPIKey
     }
 
     /// LLM-side endpoint (Edit Mode, verbatim translation, context). A Gemini
     /// key is rejected by Groq: route through Google's OpenAI-compatible
     /// endpoint unless the user configured their own base URL.
     var resolvedLLMBaseURL: String {
+        Self.resolveLLMBaseURL(provider: aiProvider, apiBaseURL: apiBaseURL)
+    }
+
+    static func resolveLLMBaseURL(provider: AIProvider, apiBaseURL: String) -> String {
         let base = apiBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        if base.isEmpty, aiProvider == .gemini {
+        if base.isEmpty, provider == .gemini {
             return AIProvider.geminiValidationBaseURL
         }
         return base.isEmpty ? Self.defaultAPIBaseURL : base
+    }
+
+    /// Key for `resolvedLLMBaseURL`. On Gemini without a custom base URL the
+    /// call lands on Google's shim, so it must carry the key that actually
+    /// authenticates to Gemini — the transcription key when set, otherwise
+    /// the main key field (ADR-0006: LLM calls go "с тем же ключом"). A stale
+    /// non-Gemini key in `apiKey` produced HTTP 400 on every cleanup.
+    private var resolvedLLMAPIKey: String {
+        Self.resolveLLMAPIKey(provider: aiProvider,
+                              apiBaseURL: apiBaseURL,
+                              apiKey: apiKey,
+                              transcriptionAPIKey: transcriptionAPIKey)
+    }
+
+    static func resolveLLMAPIKey(provider: AIProvider,
+                                 apiBaseURL: String,
+                                 apiKey: String,
+                                 transcriptionAPIKey: String) -> String {
+        if provider == .gemini,
+           apiBaseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let transcriptionKey = transcriptionAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            return transcriptionKey.isEmpty ? apiKey : transcriptionKey
+        }
+        return apiKey
     }
 
     private var resolvedPostProcessingBaseURL: String {
@@ -2568,7 +2722,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                                                           customSystemPrompt: self.customSystemPrompt,
                                                           outputLanguage: self.outputLanguage,
                                                           preserveExactWording: self.preserveExactWording,
-                                                          skipsLLMCleanup: self.aiProvider.skipsLLMCleanup)
+                                                          skipsLLMCleanup: self.aiProvider.skipsLLMCleanup(geminiTranscriptionMode: self.geminiTranscriptionMode))
                 await MainActor.run {
                     self.finishRetry(item: item,
                                      parsedTranscript: parsedTranscript,

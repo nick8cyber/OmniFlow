@@ -14,8 +14,8 @@ enum GeminiLiveTranscription {
     static let defaultBaseURL = "wss://generativelanguage.googleapis.com"
     private static let servicePath =
         "/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
-    // Uppercase here — the Interactions batch API uses lowercase "smart".
-    private static let smartMode = "SMART"
+    // The mode goes out uppercase here — the Interactions batch API uses
+    // lowercase (`GeminiTranscriptionMode.liveWireValue`/`batchWireValue`).
 
     static func handlesModel(_ model: String) -> Bool {
         let normalized = model.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -46,9 +46,10 @@ enum GeminiLiveTranscription {
     }
 
     static func setupMessage(model: String, customVocabulary: String,
-                             languageCodes: [String]? = nil) throws -> String {
+                             languageCodes: [String]? = nil,
+                             mode: GeminiTranscriptionMode) throws -> String {
         let terms = GeminiTranscription.vocabularyTerms(from: customVocabulary)
-        var inputAudioTranscription: [String: Any] = ["mode": smartMode]
+        var inputAudioTranscription: [String: Any] = ["mode": mode.liveWireValue]
         if !terms.isEmpty {
             inputAudioTranscription["custom_vocabulary"] = terms
         }
