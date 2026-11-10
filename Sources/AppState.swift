@@ -336,6 +336,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// settings dropdowns; the hardcoded lists stay as fallback while empty.
     @Published private(set) var availableLLMModels: [String] = []
     private var modelListTask: Task<Void, Never>?
+    private var modelListGeneration = 0
     @Published var holdShortcut: ShortcutBinding {
         didSet { persistShortcut(holdShortcut, key: "hold_shortcut"); restartHotkeyMonitoring() }
     }
@@ -2078,6 +2079,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// the provider settings view appears.
     func refreshAvailableModels() {
         modelListTask?.cancel()
+        modelListGeneration += 1
+        let generation = modelListGeneration
         let apiKey = resolvedLLMAPIKey
         let baseURL = resolvedLLMBaseURL
         guard !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -2087,7 +2090,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         modelListTask = Task { [weak self] in
             let models = await ModelListService.fetchLLMModels(baseURL: baseURL, apiKey: apiKey)
             guard !Task.isCancelled else { return }
-            Task { @MainActor in self?.availableLLMModels = models }
+            Task { @MainActor in
+                guard self?.modelListGeneration == generation else { return }
+                self?.availableLLMModels = models
+            }
         }
     }
 

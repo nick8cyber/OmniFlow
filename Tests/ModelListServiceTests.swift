@@ -10,7 +10,7 @@ enum ModelListServiceTests {
 
     private static func testDecodeModelIDs() {
         let json = """
-        {"data":[{"id":"gemini-3.1-flash-lite"},{"id":"gemini-3.6-flash"},{"id":"gemini-embedding-2"}]}
+        {"data":[{"id":"gemini-3.1-flash-lite"},{"id":"models/gemini-3.6-flash"},{"id":"gemini-embedding-2"}]}
         """.data(using: .utf8)!
         TestSupport.expectEqual(ModelListService.decodeModelIDs(json),
                                 ["gemini-3.1-flash-lite", "gemini-3.6-flash", "gemini-embedding-2"])

@@ -50,7 +50,9 @@ enum ModelListService {
             return []
         }
         var seen = Set<String>()
-        return decoded.data.map(\.id).filter { seen.insert($0).inserted }
+        return decoded.data.map(\.id)
+            .map { $0.hasPrefix("models/") ? String($0.dropFirst("models/".count)) : $0 }
+            .filter { seen.insert($0).inserted }
     }
 
     static func filterLLMModels(_ ids: [String]) -> [String] {
