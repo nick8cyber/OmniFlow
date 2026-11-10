@@ -34,11 +34,13 @@ private struct CleanupCard: View {
     var body: some View {
         SettingsCard(title: "Cleanup", icon: "sparkles") {
             VStack(spacing: 8) {
-                FormRow(title: "Preserve exact wording") {
-                    Toggle("", isOn: $appState.preserveExactWording)
+                FormRow(title: "LLM cleanup") {
+                    Toggle("", isOn: Binding(
+                        get: { !appState.preserveExactWording },
+                        set: { appState.preserveExactWording = !$0 }))
                         .toggleStyle(.switch)
                 }
-                Text("When enabled, LLM cleanup is skipped and your words are pasted verbatim. Voice macros and Edit Mode still work. Output Language still translates, but literally.")
+                Text("When off, your words are pasted verbatim with no LLM cleanup. Voice macros and Edit Mode still work. Output Language still translates, but literally.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
