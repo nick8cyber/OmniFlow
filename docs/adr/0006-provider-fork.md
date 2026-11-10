@@ -21,7 +21,9 @@
 - LLM-зависимые пути (Edit Mode, перевод Output language, контекст) идут через
   OpenAI-совместимый эндпоинт Google (`geminiValidationBaseURL`) с тем же
   ключом; модели постобработки/контекста согласуются при смене провайдера
-  (`adjustedLLMModel`, дефолт `gemini-2.5-flash`).
+  (`adjustedLLMModel`, дефолт `gemini-3.5-flash-lite`; устаревшие
+  `gemini-2.x` id при запуске мигрируют на него — Google с 01.12.2026
+  роутит `gemini-2.5-flash` на `gemini-3.5-flash-lite`).
 - Переключение провайдера согласует модели (`adjustedBatchModel` /
   `adjustedLiveModel`), live-модель при уходе с Gemini сбрасывается в дефолт.
 
