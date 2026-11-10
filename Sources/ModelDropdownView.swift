@@ -4,6 +4,9 @@ struct ModelDropdownView: View {
     let title: String
     var subtitle: String?
     let predefinedModels: [String]
+    /// Models fetched live from the provider's `/models` endpoint; merged
+    /// after the predefined entries, deduplicated.
+    var fetchedModels: [String] = []
     let defaultModel: String
     @Binding var textDraft: String
     var onCommit: () -> Void
@@ -12,6 +15,11 @@ struct ModelDropdownView: View {
     @State private var isCustom = false
     @FocusState private var customFieldFocused: Bool
 
+    private var allModels: [String] {
+        var seen = Set<String>()
+        return (predefinedModels + fetchedModels).filter { seen.insert($0).inserted }
+    }
+
     private var selectionBinding: Binding<String> {
         Binding<String>(
             get: { isCustom ? "__custom__" : textDraft },
@@ -19,7 +27,7 @@ struct ModelDropdownView: View {
                 if newValue == "__custom__" {
                     if !isCustom {
                         isCustom = true
-                        if predefinedModels.contains(textDraft) {
+                        if allModels.contains(textDraft) {
                             textDraft = ""
                         }
                     }
@@ -37,7 +45,7 @@ struct ModelDropdownView: View {
                 .font(.caption.weight(.semibold))
             HStack(spacing: 8) {
                 Picker("", selection: selectionBinding) {
-                    ForEach(predefinedModels, id: \.self) { model in
+                    ForEach(allModels, id: \.self) { model in
                         Text(model).tag(model)
                     }
                     Divider()
@@ -100,7 +108,7 @@ struct ModelDropdownView: View {
 
     private func syncCustomState() {
         let trimmed = textDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty && !predefinedModels.contains(trimmed) {
+        if !trimmed.isEmpty && !allModels.contains(trimmed) {
             isCustom = true
         }
     }

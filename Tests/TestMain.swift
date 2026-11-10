@@ -12,6 +12,7 @@ struct OmniFlowTests {
         LiveFinishDecisionTests.run()
         LiveTranscriptAccumulatorTests.run()
         ModelConfigurationTests.run()
+        ModelListServiceTests.run()
         PostProcessingFallbackTests.run()
         ShortcutCoreTests.run()
         SemanticVersionTests.run()

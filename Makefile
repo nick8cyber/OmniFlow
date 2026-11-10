@@ -25,6 +25,7 @@ TEST_PRODUCTION_SOURCES = \
 	Sources/LiveAudioLevelNormalizer.swift \
 	Sources/LiveTranscriptAccumulator.swift \
 	Sources/ModelConfiguration.swift \
+	Sources/ModelListService.swift \
 	Sources/OverlayTextFit.swift \
 	Sources/PasteGate.swift \
 	Sources/PostProcessingService.swift \

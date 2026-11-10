@@ -53,8 +53,8 @@ enum AIProvider: String, CaseIterable, Identifiable {
     /// verbatim translation). Vision-capable, so it also serves context.
     /// Free-tier friendly: Google deprecated the 2.x ids below and auto-routes
     /// gemini-2.5-flash requests to gemini-3.5-flash-lite from 2026-12-01.
-    static let geminiLLMModel = "gemini-3.5-flash-lite"
-    static let geminiContextModels = ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash"]
+    static let geminiLLMModel = "gemini-3.1-flash-lite"
+    static let geminiContextModels = ["gemini-3.1-flash-lite", "gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash"]
     private static let deprecatedGeminiLLMModels: Set<String> = [
         "gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash",
     ]

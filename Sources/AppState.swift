@@ -277,6 +277,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 AppSettingsStorage.save(apiKey, account: "groq_api_key")
             }
             rebuildContextService()
+            refreshAvailableModels()
         }
     }
     @Published var apiBaseURL: String {
@@ -288,6 +289,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 AppSettingsStorage.save(trimmed, account: "api_base_url")
             }
             rebuildContextService()
+            refreshAvailableModels()
         }
     }
     @Published var transcriptionAPIURL: String {
@@ -309,6 +311,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             } else {
                 AppSettingsStorage.save(transcriptionAPIKey, account: "transcription_api_key")
             }
+            refreshAvailableModels()
         }
     }
     @Published var transcriptionModel: String {
@@ -329,6 +332,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
             rebuildContextService()
         }
     }
+    /// Model ids fetched from `GET {resolvedLLMBaseURL}/models` — feeds the
+    /// settings dropdowns; the hardcoded lists stay as fallback while empty.
+    @Published private(set) var availableLLMModels: [String] = []
+    private var modelListTask: Task<Void, Never>?
     @Published var holdShortcut: ShortcutBinding {
         didSet { persistShortcut(holdShortcut, key: "hold_shortcut"); restartHotkeyMonitoring() }
     }
@@ -671,6 +678,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         contextModel = AIProvider.adjustedLLMModel(current: contextModel,
                                                    provider: aiProvider,
                                                    fallback: Self.defaultContextModel)
+        refreshAvailableModels()
         Self.writeRecordingStateFlag(false)
 
         overlayManager.onStopButtonPressed = { [weak self] in
@@ -2062,6 +2070,25 @@ final class AppState: ObservableObject, @unchecked Sendable {
         contextModel = AIProvider.adjustedLLMModel(current: contextModel,
                                                    provider: provider,
                                                    fallback: Self.defaultContextModel)
+        refreshAvailableModels()
+    }
+
+    /// Refetches the provider's model catalog for the settings dropdowns.
+    /// Key/endpoint changes trigger it from their didSets; also called when
+    /// the provider settings view appears.
+    func refreshAvailableModels() {
+        modelListTask?.cancel()
+        let apiKey = resolvedLLMAPIKey
+        let baseURL = resolvedLLMBaseURL
+        guard !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            availableLLMModels = []
+            return
+        }
+        modelListTask = Task { [weak self] in
+            let models = await ModelListService.fetchLLMModels(baseURL: baseURL, apiKey: apiKey)
+            guard !Task.isCancelled else { return }
+            Task { @MainActor in self?.availableLLMModels = models }
+        }
     }
 
     // MARK: Realtime streaming

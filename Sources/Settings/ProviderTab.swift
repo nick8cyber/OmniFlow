@@ -26,6 +26,7 @@ struct AIProviderSettingsView: View {
         }
         .onAppear {
             apiKeyInput = appState.apiKey
+            appState.refreshAvailableModels()
         }
         .onChange(of: appState.aiProvider) { _ in
             // Validation outcomes belong to the provider that produced them.
