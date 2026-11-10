@@ -547,7 +547,10 @@ private enum SessionIntent {
 10. `try Task.checkCancellation()`; **bootstrap**: непустой
     `parsedTranscript.transcript.trimmed` → `lastTranscript` (main) — чтобы Paste Again
     имел свежий текст даже при падении пост-обработки;
-11. **контекст**: `appContext = sessionContext` ИЛИ `await inFlightContextTask?.value`
+11. **контекст**: `appContext = sessionContext` ИЛИ (только если
+    `sessionNeedsLLMContext` — cleanup/перевод/command; verbatim+preserve и
+    smart без output language захват вообще не запускают, см. 21 §6.2)
+    `await contextAfterWait(inFlightContextTask, seconds: 2.5)`
     ИЛИ `fallbackContextAtStop()` (frontmost app + заголовок окна через AX,
     `currentActivity = "Could not refresh app context at stop time; using text-only post-processing."`,
     `screenshotError = "No app context captured before stop"`); `try Task.checkCancellation()`;

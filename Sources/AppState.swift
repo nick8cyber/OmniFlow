@@ -1378,6 +1378,32 @@ final class AppState: ObservableObject, @unchecked Sendable {
         contextCaptureTask?.cancel()
         capturedContext = nil
         overlayManager.updateTargetApp("")
+        // Only LLM-consuming sessions (cleanup, verbatim translation, command
+        // transform) use the captured context. A plain preserved/smart paste
+        // would burn a context-model request per dictation on a summary
+        // nothing reads — and worse, its await used to hold the insertion.
+        guard Self.sessionNeedsLLMContext(
+                intent: currentSessionIntent,
+                preserveExactWording: preserveExactWording,
+                skipsLLMCleanup: aiProvider.skipsLLMCleanup(
+                    geminiTranscriptionMode: geminiTranscriptionMode),
+                outputLanguage: outputLanguage) else {
+            contextCaptureTask = nil
+            lastContextScreenshotStatus = "Context inference skipped — session inserts verbatim"
+            let snapshot = contextService.collectSelectionSnapshot()
+            capturedContext = AppContext(appName: snapshot.appName,
+                                         bundleIdentifier: snapshot.bundleIdentifier,
+                                         windowTitle: snapshot.windowTitle,
+                                         selectedText: snapshot.selectedText,
+                                         currentActivity: "Context inference skipped: verbatim insertion.",
+                                         contextSystemPrompt: nil,
+                                         contextPrompt: nil,
+                                         screenshotDataURL: nil,
+                                         screenshotMimeType: nil,
+                                         screenshotError: "Skipped: session does not consume context")
+            overlayManager.updateTargetApp(snapshot.appName ?? "")
+            return
+        }
         lastContextScreenshotStatus = "Collecting screenshot..."
         let service = contextService
         contextCaptureTask = Task { () -> AppContext in
@@ -1387,6 +1413,39 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 self?.overlayManager.updateTargetApp(context.appName ?? "")
             }
             return context
+        }
+    }
+
+    /// Does any downstream consumer need the captured context this session?
+    /// Command transforms and every non-preserved path consume it; a verbatim
+    /// or smart paste with no output language does not.
+    private static func sessionNeedsLLMContext(intent: SessionIntent,
+                                       preserveExactWording: Bool,
+                                       skipsLLMCleanup: Bool,
+                                       outputLanguage: String) -> Bool {
+        intent.isCommandMode
+            || !(preserveExactWording || skipsLLMCleanup)
+            || !outputLanguage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// How long the pipeline still waits for the in-flight context capture
+    /// once speech has ended. The capture starts at recording start, so a
+    /// straggler is by definition slow — the paste degrades to the text-only
+    /// fallback instead of adding multi-second tail latency.
+    private static let contextAwaitCapSeconds: TimeInterval = 2.5
+
+    /// First completed wins: the context value, or nil when the cap elapses.
+    private static func contextAfterWait(_ task: Task<AppContext, Never>?,
+                                         seconds: TimeInterval) async -> AppContext? {
+        guard let task else { return nil }
+        return await withTaskGroup(of: AppContext?.self) { group in
+            group.addTask { await task.value }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                return nil
+            }
+            defer { group.cancelAll() }
+            return await group.next() ?? nil
         }
     }
 
@@ -1549,7 +1608,20 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
                 var appContext = sessionContext
                 if appContext == nil {
-                    appContext = await inFlightContextTask?.value
+                    // Only the LLM paths (cleanup, verbatim translation,
+                    // command transform) consume the context — a plain
+                    // preserved/smart paste must not block on a straggling
+                    // context call. LLM paths wait, but with a hard cap.
+                    let llmWillConsumeContext = Self.sessionNeedsLLMContext(
+                        intent: sessionIntent,
+                        preserveExactWording: self.preserveExactWording,
+                        skipsLLMCleanup: self.aiProvider.skipsLLMCleanup(
+                            geminiTranscriptionMode: self.geminiTranscriptionMode),
+                        outputLanguage: self.outputLanguage)
+                    if llmWillConsumeContext {
+                        appContext = await Self.contextAfterWait(inFlightContextTask,
+                                                                 seconds: Self.contextAwaitCapSeconds)
+                    }
                 }
                 if appContext == nil {
                     appContext = self.fallbackContextAtStop()
@@ -1728,7 +1800,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         guard isTranscribing else { return }
         var appContext = sessionContext
         if appContext == nil {
-            appContext = await inFlightContextTask?.value
+            appContext = await Self.contextAfterWait(inFlightContextTask,
+                                                     seconds: Self.contextAwaitCapSeconds)
         }
         if appContext == nil {
             appContext = fallbackContextAtStop()

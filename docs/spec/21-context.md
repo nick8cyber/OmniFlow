@@ -225,8 +225,17 @@ Model: <model>
 
 В момент `stopRecording` фиксируются: `sessionContext = capturedContext`, `inFlightContextTask = contextCaptureTask`, оба поля сбрасываются. Выбор финального контекста (и в успешной ветке, и в ветке ошибки транскрипции):
 
+0. **Сессия без LLM-потребителей** (`sessionNeedsLLMContext == false` — обычная
+   диктовка в verbatim с «LLM cleanup» OFF или в smart без output language):
+   `startContextCapture` вообще не запускает `collectContext()` — нет
+   скриншота и запроса контекстной модели; `capturedContext` собирается
+   синхронно из selection snapshot, `lastContextScreenshotStatus =
+   "Context inference skipped — session inserts verbatim"`.
 1. `sessionContext` (контекст, готовый на момент остановки) — приоритет;
-2. иначе дождаться `inFlightContextTask?.value` (запрос, ещё летевший при остановке);
+2. иначе — только когда `sessionNeedsLLMContext` — дождаться
+   `contextAfterWait(inFlightContextTask, seconds: 2.5)`: первый
+   завершившийся побеждает, при превышении капа — `nil`; ветка ошибки
+   транскрипции ждёт всегда с тем же капом (контекст там нужен лишь истории);
 3. иначе `fallbackContextAtStop()`.
 
 ### 6.3 `fallbackContextAtStop()`
