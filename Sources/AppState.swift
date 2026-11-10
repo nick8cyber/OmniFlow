@@ -631,12 +631,19 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }()
         selectedMicrophoneID = UserDefaults.standard.string(forKey: "selected_microphone_id") ?? "default"
 
+        let initialProvider = AIProvider.migrate(
+            stored: UserDefaults.standard.string(forKey: AIProvider.storageKey),
+            transcriptionModel: UserDefaults.standard.string(forKey: "transcription_model")
+                ?? Self.defaultTranscriptionModel)
+        let initialLLMBaseURL = AppSettingsStorage.load(account: "api_base_url") ?? ""
         contextService = Self.makeAppContextService(
-            apiKey: AppSettingsStorage.load(account: "groq_api_key") ?? "",
-            baseURL: {
-                let stored = AppSettingsStorage.load(account: "api_base_url") ?? ""
-                return stored.isEmpty ? Self.defaultAPIBaseURL : stored
-            }(),
+            apiKey: Self.resolveLLMAPIKey(
+                provider: initialProvider,
+                apiBaseURL: initialLLMBaseURL,
+                apiKey: AppSettingsStorage.load(account: "groq_api_key") ?? "",
+                transcriptionAPIKey: AppSettingsStorage.load(account: "transcription_api_key") ?? ""),
+            baseURL: Self.resolveLLMBaseURL(provider: initialProvider,
+                                            apiBaseURL: initialLLMBaseURL),
             customContextPrompt: UserDefaults.standard.string(forKey: "custom_context_prompt") ?? "",
             contextModel: UserDefaults.standard.string(forKey: "context_model") ?? Self.defaultContextModel,
             contextScreenshotMaxDimension: Self.normalizedContextScreenshotMaxDimension(
@@ -2124,7 +2131,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     func makeAppContextService() -> AppContextService {
-        Self.makeAppContextService(apiKey: apiKey,
+        Self.makeAppContextService(apiKey: resolvedLLMAPIKey,
                                    baseURL: resolvedLLMBaseURL,
                                    customContextPrompt: customContextPrompt,
                                    contextModel: contextModel,
@@ -2162,18 +2169,46 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     private var resolvedPostProcessingAPIKey: String {
-        apiKey
+        resolvedLLMAPIKey
     }
 
     /// LLM-side endpoint (Edit Mode, verbatim translation, context). A Gemini
     /// key is rejected by Groq: route through Google's OpenAI-compatible
     /// endpoint unless the user configured their own base URL.
     var resolvedLLMBaseURL: String {
+        Self.resolveLLMBaseURL(provider: aiProvider, apiBaseURL: apiBaseURL)
+    }
+
+    static func resolveLLMBaseURL(provider: AIProvider, apiBaseURL: String) -> String {
         let base = apiBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        if base.isEmpty, aiProvider == .gemini {
+        if base.isEmpty, provider == .gemini {
             return AIProvider.geminiValidationBaseURL
         }
         return base.isEmpty ? Self.defaultAPIBaseURL : base
+    }
+
+    /// Key for `resolvedLLMBaseURL`. On Gemini without a custom base URL the
+    /// call lands on Google's shim, so it must carry the key that actually
+    /// authenticates to Gemini — the transcription key when set, otherwise
+    /// the main key field (ADR-0006: LLM calls go "с тем же ключом"). A stale
+    /// non-Gemini key in `apiKey` produced HTTP 400 on every cleanup.
+    private var resolvedLLMAPIKey: String {
+        Self.resolveLLMAPIKey(provider: aiProvider,
+                              apiBaseURL: apiBaseURL,
+                              apiKey: apiKey,
+                              transcriptionAPIKey: transcriptionAPIKey)
+    }
+
+    static func resolveLLMAPIKey(provider: AIProvider,
+                                 apiBaseURL: String,
+                                 apiKey: String,
+                                 transcriptionAPIKey: String) -> String {
+        if provider == .gemini,
+           apiBaseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let transcriptionKey = transcriptionAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            return transcriptionKey.isEmpty ? apiKey : transcriptionKey
+        }
+        return apiKey
     }
 
     private var resolvedPostProcessingBaseURL: String {
