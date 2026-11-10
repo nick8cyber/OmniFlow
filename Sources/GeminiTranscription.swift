@@ -2,7 +2,6 @@ import Foundation
 
 enum GeminiTranscription {
     static let defaultBaseURL = "https://generativelanguage.googleapis.com/v1beta"
-    private static let smartMode = "smart"
     private static let customVocabularyLimit = 1000
 
     // Batch Interactions API handles gemini-*transcribe* models except the *-live ones.
@@ -79,7 +78,8 @@ enum GeminiTranscription {
     static func requestBody(model: String,
                             audioData: Data,
                             mimeType: String,
-                            customVocabulary: String) throws -> Data {
+                            customVocabulary: String,
+                            mode: GeminiTranscriptionMode) throws -> Data {
         let terms = vocabularyTerms(from: customVocabulary)
         let request = InteractionRequest(
             model: model,
@@ -90,7 +90,7 @@ enum GeminiTranscription {
             ],
             generationConfig: GenerationConfig(
                 transcriptionConfig: TranscriptionConfig(
-                    mode: Mode(type: smartMode),
+                    mode: Mode(type: mode.batchWireValue),
                     customVocabulary: terms.isEmpty ? nil : terms)))
         return try JSONEncoder().encode(request)
     }

@@ -15,9 +15,9 @@ struct AIProviderSettingsView: View {
         ScrollView {
             VStack(spacing: 16) {
                 providerCard
-                if appState.aiProvider == .gemini {
+                if appState.aiProvider == .gemini && appState.geminiTranscriptionMode == .smart {
                     InfoBanner(icon: "sparkles",
-                               text: "No post-processing to configure. Gemini returns polished text directly — cleanup, prompts and safety settings apply to OpenAI-compatible providers only.")
+                               text: "No post-processing to configure in Smart mode. Gemini returns polished text directly — switch Transcription Mode to Verbatim below to clean transcripts with OmniFlow's own LLM pipeline instead.")
                 }
                 apiKeyCard
                 ProviderSettingsFields()

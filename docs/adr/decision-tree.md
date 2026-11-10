@@ -14,12 +14,12 @@ flowchart TD
     LIVE -- да --> LF[Адаптивный финиш<br/>ADR-0002]
     LIVE -- нет --> B[Gemini batch<br/>спека 10 §4]
     LF --> R{Live дал текст?}
-    R -- да --> C{skipsLLMCleanup?}
+    R -- да --> C{skipsLLMCleanup?<br/>gemini + smart}
     R -- нет --> B
     B --> C
     RT --> C
-    C -- "gemini" --> OUT[Вставка как есть<br/>.builtInProviderCleanup]
-    C -- openai-compatible --> M{Макрос?}
+    C -- "gemini + smart" --> OUT[Вставка как есть<br/>.builtInProviderCleanup]
+    C -- "иначе / verbatim" --> M{Макрос?}
     M -- да --> OUTM[Payload без LLM]
     M -- нет --> CL{preserve_exact_wording?}
     CL -- да --> OUTW[Дословно / перевод verbatim]
@@ -42,7 +42,7 @@ flowchart TD
 | Ретраить ли 429 с аудио? | 0003 | Никогда; только транзиентные ошибки ×3 |
 | Звать ли провайдера для пустой записи? | 0004 | Нет — локальный гейт |
 | Какой оверлей показывать? | 0005 | Один, карточка 480×64 |
-| Прогонять ли Gemini-транскрипт через LLM? | 0006 | Нет — cleanup встроен в провайдера |
+| Прогонять ли Gemini-транскрипт через LLM? | 0006 / 0010 | В smart — нет (cleanup встроен); в verbatim — да, через OmniFlow cleanup |
 | Куда класть новую настройку? | 0007 | Вкладка по ментальной модели, не General |
 | Показывать ли GitHub-промо/звёзды в UI? | 0008 | Нет |
 | Вставлять ли вслепую? | 0009 | Нет — гейт цели: фокус + выделение перечитываются перед нажатием |

@@ -187,6 +187,19 @@ struct GeminiProviderFields: View {
                                   realtimeModelDraft = AIProvider.geminiLiveModel
                                   appState.realtimeStreamingModel = AIProvider.geminiLiveModel
                               })
+            VStack(alignment: .leading, spacing: 4) {
+                Picker("Transcription Mode", selection: $appState.geminiTranscriptionMode) {
+                    ForEach(GeminiTranscriptionMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                Text(appState.geminiTranscriptionMode == .smart
+                     ? "Gemini cleans the transcript itself: removes fillers, resolves self-corrections, restructures into paragraphs and lists."
+                     : "Gemini returns literal speech (fillers and repetitions kept); OmniFlow's own cleanup shapes the final text — tune it on the Processing tab.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             ModelDropdownView(title: "Context Model",
                               subtitle: "Used for context inference, with a text-only retry when screenshot analysis fails. Screenshot analysis requires a model that accepts image input.",
                               predefinedModels: ModelConfiguration.visionModels + AIProvider.geminiContextModels,

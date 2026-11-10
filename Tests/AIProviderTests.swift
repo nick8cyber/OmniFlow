@@ -61,8 +61,13 @@ enum AIProviderTests {
     }
 
     private static func testGeminiSkipsLLMCleanup() {
-        TestSupport.expect(AIProvider.gemini.skipsLLMCleanup, "Gemini must skip LLM cleanup")
-        TestSupport.expect(!AIProvider.openAICompatible.skipsLLMCleanup,
+        TestSupport.expect(AIProvider.gemini.skipsLLMCleanup(geminiTranscriptionMode: .smart),
+                           "Gemini smart mode must skip LLM cleanup")
+        TestSupport.expect(!AIProvider.gemini.skipsLLMCleanup(geminiTranscriptionMode: .verbatim),
+                           "Gemini verbatim mode must run OmniFlow's LLM cleanup")
+        TestSupport.expect(!AIProvider.openAICompatible.skipsLLMCleanup(geminiTranscriptionMode: .smart),
                            "OpenAI-compatible must keep LLM cleanup")
+        TestSupport.expect(!AIProvider.openAICompatible.skipsLLMCleanup(geminiTranscriptionMode: .verbatim),
+                           "OpenAI-compatible ignores the Gemini mode")
     }
 }

@@ -29,11 +29,12 @@ enum GeminiLiveTranscriptionTests {
     private static func setupMessageOrCrash(model: String,
                                             customVocabulary: String,
                                             languageCodes: [String]? = nil,
+                                            mode: GeminiTranscriptionMode = .smart,
                                             file: StaticString = #filePath,
                                             line: UInt = #line) -> String {
         do {
             return try GeminiLiveTranscription.setupMessage(model: model, customVocabulary: customVocabulary,
-                                                            languageCodes: languageCodes)
+                                                            languageCodes: languageCodes, mode: mode)
         } catch {
             fatalError("\(file):\(line): setupMessage unexpectedly threw \(error)")
         }
@@ -139,6 +140,13 @@ enum GeminiLiveTranscriptionTests {
         let noVocabularySetup = (jsonOrCrash(noVocabulary)["setup"] as? [String: Any])?["inputAudioTranscription"] as? [String: Any]
         expect(noVocabularySetup?["custom_vocabulary"] == nil,
                "empty vocabulary is omitted, not sent as an empty list")
+
+        let verbatim = jsonOrCrash(setupMessageOrCrash(model: "gemini-3.5-transcribe-live",
+                                                       customVocabulary: "",
+                                                       mode: .verbatim))["setup"] as? [String: Any]
+        let verbatimAudio = verbatim?["inputAudioTranscription"] as? [String: Any]
+        expectEqual(verbatimAudio?["mode"] as? String, "VERBATIM",
+                    "verbatim mode goes out uppercase on the live wire")
     }
 
     // MARK: - 4

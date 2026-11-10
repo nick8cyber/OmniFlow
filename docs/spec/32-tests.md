@@ -328,7 +328,8 @@ context-модели; `ModelConfiguration` (пересечение со спек
    `setup.model == "models/gemini-3.5-transcribe-live"` (namespacing models/);
    `generationConfig.responseModalities == ["TEXT"]`;
    `inputAudioTranscription.mode == "SMART"` (верхний регистр, в отличие от
-   batch-API); `custom_vocabulary` — дедуплицированный `["OmniFlow", "Groq"]`;
+   batch-API) и `== "VERBATIM"` при `mode: .verbatim`;
+   `custom_vocabulary` — дедуплицированный `["OmniFlow", "Groq"]`;
    `language_codes` нет (авто-детект); пустой словарь опускается;
    модель с префиксом `models/` не дублируется.
 4. **testAudioFramesDeclareTheRealSampleRate** — `realtimeInput.audio`:
@@ -407,7 +408,9 @@ context-модели; `ModelConfiguration` (пересечение со спек
   обратный — `whisper-large-v3`; свои модели не трогаются;
 - `adjustedLiveModel`: переход на Gemini ставит `gemini-3.5-transcribe-live`,
   уход с Gemini сбрасывает в пусто (дефолт провайдера);
-- `skipsLLMCleanup`: true только у `.gemini`.
+- `skipsLLMCleanup(geminiTranscriptionMode:)`: true только у `.gemini` +
+  `.smart`; `.gemini` + `.verbatim` → false (cleanup OmniFlow работает),
+  у `.openAICompatible` — всегда false.
 
 ## 9. LLMCooldownManagerTests (спека cooldown)
 
@@ -549,12 +552,12 @@ Translate (`translateVerbatim`, spec 11 §4.7):
 - [ ] TranscriptTextCore: 9 тестов §4 — парсер JSON/fallback/invalid, подавление галлюцинаций по no_speech_prob, санитайзеры трёх режимов, instruction guard (5 кейсов), press-enter парсер (regex 00 §4.7, 9 кейсов)
 - [ ] ModelConfiguration: алиасы, стабильные конфиги (4096/low/none), целостность списков, stripThinkTags
 - [ ] AppContextService: summary = первые 2 предложения для Qwen, strip <think>, no-op для не-Qwen, отсутствие deprecated моделей, reasoning off
-- [ ] GeminiTranscription: роутинг, подмена Groq-URL, smart-mode тело, словарь (дедуп/кап 1000/omit пустого), парсер transcript, failureMessage с массив-обёрткой
-- [ ] GeminiLive: роутинг без пересечений, socketURL fallback + drop query, setup-фрейм (models/, SMART, vocabulary), 24 kHz mime, классификация серверных фреймов + junk
+- [ ] GeminiTranscription: роутинг, подмена Groq-URL, smart/verbatim-mode тело, словарь (дедуп/кап 1000/omit пустого), парсер transcript, failureMessage с массив-обёрткой
+- [ ] GeminiLive: роутинг без пересечений, socketURL fallback + drop query, setup-фрейм (models/, SMART/VERBATIM, vocabulary), 24 kHz mime, классификация серверных фреймов + junk
 - [ ] LLMCooldownManager: дневной лимит приоритетен (179.56/true), durations, fallback 60 c, стабильный udKey, circuit breaker (effectivePrimary == nil при двух моделях в кулдауне), cooldown-skip возвращает raw transcript c `skippedCooldown == true`
 - [ ] TranscriptionService: пустой ключ → `.invalidKey` без сети; статусы 200/401/403 → valid/invalidKey/invalidKey; 429/5xx → `.unavailable` c friendly-текстом; unreachableMessage различает таймаут
 - [ ] LiveAudioLevelNormalizer: 13 констант, гейты (0/0.06), bump 0.12, атака 0.45 против релиза 0.12, ceiling-адаптация, reset (§10)
 - [ ] PostProcessingFallback: cleanup 429/empty/suspected → fallback/raw, 500 не ретраится, circuit breaker без запросов; command — без guard и без флага skippedCooldown; translate — ретрай без записи кулдаунов (§11)
 - [ ] AppSettingsDefaults: command mode `false`, manual modifier `option` (§12)
-- [ ] AIProvider: миграция по модели, batch/live-подстройка при смене провайдера, skipsLLMCleanup (§8d)
+- [ ] AIProvider: миграция по модели, batch/live-подстройка при смене провайдера, skipsLLMCleanup по режиму smart/verbatim (§8d)
 - [ ] Тесты без сети и без AppKit-зависимостей; компоновка только с TEST_PRODUCTION_SOURCES (спека 33)

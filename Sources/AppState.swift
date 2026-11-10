@@ -422,6 +422,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var realtimeStreamingModel: String {
         didSet { UserDefaults.standard.set(realtimeStreamingModel, forKey: "realtime_streaming_model") }
     }
+    @Published var geminiTranscriptionMode: GeminiTranscriptionMode {
+        didSet { UserDefaults.standard.set(geminiTranscriptionMode.rawValue, forKey: "gemini_transcription_mode") }
+    }
     @Published var lastFailedAudioFileName: String {
         didSet { UserDefaults.standard.set(lastFailedAudioFileName, forKey: "last_failed_audio_file") }
     }
@@ -608,6 +611,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         shortcutStartDelay = max(0, UserDefaults.standard.double(forKey: "shortcut_start_delay"))
         realtimeStreamingEnabled = UserDefaults.standard.bool(forKey: "realtime_streaming_enabled")
         realtimeStreamingModel = UserDefaults.standard.string(forKey: "realtime_streaming_model") ?? ""
+        geminiTranscriptionMode = GeminiTranscriptionMode(
+            rawValue: UserDefaults.standard.string(forKey: "gemini_transcription_mode") ?? "") ?? .smart
         lastFailedAudioFileName = UserDefaults.standard.string(forKey: "last_failed_audio_file") ?? ""
         dictationAudioInterruptionEnabled = UserDefaults.standard.bool(forKey: "dictation_audio_interruption_enabled")
         preserveClipboard = UserDefaults.standard.object(forKey: "preserve_clipboard") as? Bool ?? true
@@ -653,6 +658,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         postProcessingModel = AIProvider.adjustedLLMModel(current: postProcessingModel,
                                                           provider: aiProvider,
                                                           fallback: Self.defaultPostProcessingModel)
+        postProcessingFallbackModel = AIProvider.adjustedLLMModel(current: postProcessingFallbackModel,
+                                                                  provider: aiProvider,
+                                                                  fallback: Self.defaultPostProcessingFallbackModel)
         contextModel = AIProvider.adjustedLLMModel(current: contextModel,
                                                    provider: aiProvider,
                                                    fallback: Self.defaultContextModel)
@@ -1546,7 +1554,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                                                           customSystemPrompt: self.customSystemPrompt,
                                                           outputLanguage: self.outputLanguage,
                                                           preserveExactWording: self.preserveExactWording,
-                                                          skipsLLMCleanup: self.aiProvider.skipsLLMCleanup)
+                                                          skipsLLMCleanup: self.aiProvider.skipsLLMCleanup(geminiTranscriptionMode: self.geminiTranscriptionMode))
                 try Task.checkCancellation()
                 await self.completeTranscription(result: result,
                                                  parsedTranscript: parsedTranscript,
@@ -2041,6 +2049,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         postProcessingModel = AIProvider.adjustedLLMModel(current: postProcessingModel,
                                                           provider: provider,
                                                           fallback: Self.defaultPostProcessingModel)
+        postProcessingFallbackModel = AIProvider.adjustedLLMModel(current: postProcessingFallbackModel,
+                                                                  provider: provider,
+                                                                  fallback: Self.defaultPostProcessingFallbackModel)
         contextModel = AIProvider.adjustedLLMModel(current: contextModel,
                                                    provider: provider,
                                                    fallback: Self.defaultContextModel)
@@ -2058,6 +2069,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 model: model,
                 customVocabulary: customVocabulary,
                 sampleRate: AudioRecorder.realtimeSampleRate,
+                transcriptionMode: geminiTranscriptionMode,
                 language: resolvedTranscriptionLanguage)
             start(realtimeService: GeminiLiveTranscriptionService(config: configuration))
         } else if GeminiTranscription.handlesModel(transcriptionModel) {
@@ -2128,7 +2140,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                                  baseURL: resolvedTranscriptionBaseURL,
                                  transcriptionModel: transcriptionModel,
                                  language: resolvedTranscriptionLanguage,
-                                 customVocabulary: customVocabulary)
+                                 customVocabulary: customVocabulary,
+                                 geminiTranscriptionMode: geminiTranscriptionMode)
     }
 
     private var resolvedTranscriptionAPIKey: String {
@@ -2568,7 +2581,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                                                           customSystemPrompt: self.customSystemPrompt,
                                                           outputLanguage: self.outputLanguage,
                                                           preserveExactWording: self.preserveExactWording,
-                                                          skipsLLMCleanup: self.aiProvider.skipsLLMCleanup)
+                                                          skipsLLMCleanup: self.aiProvider.skipsLLMCleanup(geminiTranscriptionMode: self.geminiTranscriptionMode))
                 await MainActor.run {
                     self.finishRetry(item: item,
                                      parsedTranscript: parsedTranscript,

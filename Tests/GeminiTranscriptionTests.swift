@@ -27,13 +27,15 @@ enum GeminiTranscriptionTests {
                                            audioData: Data,
                                            mimeType: String,
                                            customVocabulary: String,
+                                           mode: GeminiTranscriptionMode = .smart,
                                            file: StaticString = #filePath,
                                            line: UInt = #line) -> Data {
         do {
             return try GeminiTranscription.requestBody(model: model,
                                                        audioData: audioData,
                                                        mimeType: mimeType,
-                                                       customVocabulary: customVocabulary)
+                                                       customVocabulary: customVocabulary,
+                                                       mode: mode)
         } catch {
             fatalError("\(file):\(line): requestBody unexpectedly threw \(error)")
         }
@@ -100,6 +102,15 @@ enum GeminiTranscriptionTests {
                "language_codes must never be sent in transcription_config")
         expect(json["timestamp_granularities"] == nil, "timestamp_granularities must not be sent")
         expect(transcriptionConfig?["diarization_mode"] == nil, "diarization_mode must not be sent")
+
+        let verbatimBody = requestBodyOrCrash(model: "gemini-3.5-transcribe",
+                                            audioData: Data([1]),
+                                            mimeType: "audio/wav",
+                                            customVocabulary: "",
+                                            mode: .verbatim)
+        let verbatimConfig = (buildBody(verbatimBody)["generation_config"] as? [String: Any])?["transcription_config"] as? [String: Any]
+        expectEqual((verbatimConfig?["mode"] as? [String: Any])?["type"] as? String, "verbatim",
+                    "verbatim mode type (lowercase)")
     }
 
     // MARK: - 4

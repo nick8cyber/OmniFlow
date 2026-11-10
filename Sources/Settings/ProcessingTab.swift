@@ -1,9 +1,10 @@
 import SwiftUI
 
 // Processing tab: what happens to the transcript between speech and paste.
-// Cleanup, prompts and the instruction guard belong to the OpenAI-compatible
-// provider only — with Gemini the provider already returns polished text, so
-// those cards are replaced by a notice. Vocabulary and context are common.
+// Cleanup, prompts and the instruction guard are hidden only while Gemini's
+// smart mode does the polishing itself; a Gemini verbatim transcript goes
+// through OmniFlow's own cleanup, so the cards apply there too.
+// Vocabulary and context are common.
 
 struct ProcessingSettingsView: View {
     @EnvironmentObject private var appState: AppState
@@ -11,9 +12,9 @@ struct ProcessingSettingsView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
-                if appState.aiProvider == .gemini {
+                if appState.aiProvider == .gemini && appState.geminiTranscriptionMode == .smart {
                     InfoBanner(icon: "sparkles",
-                               text: "Gemini provider active. Cleanup is built into Gemini — the cleanup cards configure the OpenAI-compatible provider and have no effect right now.")
+                               text: "Gemini provider active in Smart mode. Cleanup is built into the transcription — switch Transcription Mode to Verbatim on the AI Provider tab to use OmniFlow's own cleanup.")
                 } else {
                     CleanupCard()
                     SystemPromptCard()
